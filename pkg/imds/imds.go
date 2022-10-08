@@ -109,14 +109,6 @@ func (i IMDS) GetHostname(ctx context.Context) (string, error) {
 	return hostname, nil
 }
 
-func (i IMDS) GetInstanceAction(ctx context.Context) (string, error) {
-	instanceAction, err := i.GetMetadata(ctx, "instance-action")
-	if err != nil {
-		return "", err
-	}
-	return instanceAction, nil
-}
-
 func (i IMDS) GetMetadata(ctx context.Context, path string) (string, error) {
 	out, err := i.client.GetMetadata(ctx, &imds.GetMetadataInput{
 		Path: path,
