@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strconv"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -73,42 +72,6 @@ func withIPMode(ipMode string) func(*config.LoadOptions) error {
 	}
 }
 
-func (i IMDS) GetAMIID(ctx context.Context) (string, error) {
-	amiID, err := i.GetMetadata(ctx, "ami-id")
-	if err != nil {
-		return "", err
-	}
-	return amiID, nil
-}
-
-func (i IMDS) GetAMILaunchIndex(ctx context.Context) (int, error) {
-	amiLaunchIndex, err := i.GetMetadata(ctx, "ami-launch-index")
-	if err != nil {
-		return 0, err
-	}
-	launchIndexNum, err := strconv.Atoi(amiLaunchIndex)
-	if err != nil {
-		return 0, fmt.Errorf("unable to convert ami-launch-index of %s to integer: %w", amiLaunchIndex, err)
-	}
-	return launchIndexNum, nil
-}
-
-func (i IMDS) GetAMIManifestPath(ctx context.Context) (string, error) {
-	amiManifestPath, err := i.GetMetadata(ctx, "ami-manifest-path")
-	if err != nil {
-		return "", err
-	}
-	return amiManifestPath, nil
-}
-
-func (i IMDS) GetHostname(ctx context.Context) (string, error) {
-	hostname, err := i.GetMetadata(ctx, "hostname")
-	if err != nil {
-		return "", err
-	}
-	return hostname, nil
-}
-
 func (i IMDS) GetMetadata(ctx context.Context, path string) (string, error) {
 	out, err := i.client.GetMetadata(ctx, &imds.GetMetadataInput{
 		Path: path,
@@ -119,6 +82,32 @@ func (i IMDS) GetMetadata(ctx context.Context, path string) (string, error) {
 	content, err := io.ReadAll(out.Content)
 	if err != nil {
 		return "", fmt.Errorf("unable to read response of \"%s\" metadata: %w", path, err)
+	}
+	return string(content), nil
+}
+
+func (i IMDS) GetDynamicData(ctx context.Context, path string) (string, error) {
+	out, err := i.client.GetDynamicData(ctx, &imds.GetDynamicDataInput{
+		Path: path,
+	})
+	if err != nil {
+		return "", fmt.Errorf("unable to retrieve \"%s\" dynamic data: %w", path, err)
+	}
+	content, err := io.ReadAll(out.Content)
+	if err != nil {
+		return "", fmt.Errorf("unable to read response of \"%s\" dynamic data: %w", path, err)
+	}
+	return string(content), nil
+}
+
+func (i IMDS) GetUserdata(ctx context.Context) (string, error) {
+	out, err := i.client.GetUserData(ctx, &imds.GetUserDataInput{})
+	if err != nil {
+		return "", fmt.Errorf("unable to retrieve userdata: %w", err)
+	}
+	content, err := io.ReadAll(out.Content)
+	if err != nil {
+		return "", fmt.Errorf("unable to read response of userdata: %w", err)
 	}
 	return string(content), nil
 }

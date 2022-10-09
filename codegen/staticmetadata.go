@@ -9,49 +9,54 @@ import (
 	"strings"
 )
 
-type staticPaths struct {
-	ramDiskID                       string   `imds:"path=ramdisk-id"`
-	reservationID                   string   `imds:"path=reservation-id"`
-	securityGroups                  []string `imds:"path=security-groups"`
-	availabilityZone                string   `imds:"path=placement/availability-zone"`
-	availabilityZoneID              string   `imds:"path=placement/availability-zone-id"`
-	groupName                       string   `imds:"path=placement/group-name"`
-	hostID                          string   `imds:"path=placement/host-id"`
-	partitionNumber                 int      `imds:"path=placement/partition-number"`
-	region                          int      `imds:"path=placement/region"`
-	productCodes                    []string `imds:"path=product-codes"`
-	publicHostname                  string   `imds:"path=public-hostname"`
-	publicIPv4                      string   `imds:"path=public-ipv4"`
-	localHostname                   string   `imds:"path=local-hostname"`
-	localIPv4                       string   `imds:"path=local-ipv4"`
-	mac                             string   `imds:"path=mac"`
-	instanceAction                  string   `imds:"path=instance-action"`
-	instanceID                      string   `imds:"path=instance-id"`
-	instanceLifecycle               string   `imds:"path=instance-life-cycle"`
-	instanceType                    string   `imds:"path=instance-type"`
-	kernelID                        string   `imds:"path=kernel-id"`
-	amiID                           string   `imds:"path=ami-id"`
-	amiLaunchIndex                  int      `imds:"path=ami-launch-index"`
-	amiManifestPath                 string   `imds:"path=ami-manifest-path"`
-	ancestorAMIIDs                  []string `imds:"path=ancestor-ami-ids"`
-	autoscalingTargetLifecycleState string   `imds:"path=autoscaling/target-lifecycle-state"`
-	blockDeviceMappingAMI           string   `imds:"path=block-device-mapping/ami"`
-	blockDeviceMappingRoot          []string `imds:"path=block-device-mapping/root"`
-	eventsMaintenanceHistory        string   `imds:"path=events/maintenance/history"`
-	eventsMaintenanceScheduled      string   `imds:"path=events/maintenance/scheduled"`
-	eventsRecommendationsRebalance  string   `imds:"path=events/recommendations/rebalance"`
-	iamInfo                         string   `imds:"path=iam/info"`
+type metadata struct {
+	ramDiskID                       string   `imds:"path=meta-data/ramdisk-id"`
+	reservationID                   string   `imds:"path=meta-data/reservation-id"`
+	securityGroups                  []string `imds:"path=meta-data/security-groups"`
+	availabilityZone                string   `imds:"path=meta-data/placement/availability-zone"`
+	availabilityZoneID              string   `imds:"path=meta-data/placement/availability-zone-id"`
+	groupName                       string   `imds:"path=meta-data/placement/group-name"`
+	hostID                          string   `imds:"path=meta-data/placement/host-id"`
+	partitionNumber                 int      `imds:"path=meta-data/placement/partition-number"`
+	region                          int      `imds:"path=meta-data/placement/region"`
+	productCodes                    []string `imds:"path=meta-data/product-codes"`
+	publicHostname                  string   `imds:"path=meta-data/public-hostname"`
+	publicIPv4                      string   `imds:"path=meta-data/public-ipv4"`
+	localHostname                   string   `imds:"path=meta-data/local-hostname"`
+	localIPv4                       string   `imds:"path=meta-data/local-ipv4"`
+	mac                             string   `imds:"path=meta-data/mac"`
+	instanceAction                  string   `imds:"path=meta-data/instance-action"`
+	instanceID                      string   `imds:"path=meta-data/instance-id"`
+	instanceLifecycle               string   `imds:"path=meta-data/instance-life-cycle"`
+	instanceType                    string   `imds:"path=meta-data/instance-type"`
+	kernelID                        string   `imds:"path=meta-data/kernel-id"`
+	amiID                           string   `imds:"path=meta-data/ami-id"`
+	amiLaunchIndex                  int      `imds:"path=meta-data/ami-launch-index"`
+	amiManifestPath                 string   `imds:"path=meta-data/ami-manifest-path"`
+	ancestorAMIIDs                  []string `imds:"path=meta-data/ancestor-ami-ids"`
+	autoscalingTargetLifecycleState string   `imds:"path=meta-data/autoscaling/target-lifecycle-state"`
+	blockDeviceMappingAMI           string   `imds:"path=meta-data/block-device-mapping/ami"`
+	blockDeviceMappingRoot          []string `imds:"path=meta-data/block-device-mapping/root"`
+	eventsMaintenanceHistory        string   `imds:"path=meta-data/events/maintenance/history"`
+	eventsMaintenanceScheduled      string   `imds:"path=meta-data/events/maintenance/scheduled"`
+	eventsRecommendationsRebalance  string   `imds:"path=meta-data/events/recommendations/rebalance"`
+	iamInfo                         string   `imds:"path=meta-data/iam/info"`
 }
 
 func main() {
 	src := &bytes.Buffer{}
 	fmt.Fprintln(src, "package imds")
+	fmt.Fprintln(src, "// DO NOT EDIT")
+	fmt.Fprintln(src, "// THIS FILE IS AUTO GENERATED")
 	fmt.Fprintln(src, `import (
 		"context"
 		"fmt"
 		"strconv"
 		)`)
-	t := reflect.TypeOf(staticPaths{})
+
+	fmt.Fprintln(src, genStructs())
+	// fmt.Fprintln(src, genKongCMD())
+	t := reflect.TypeOf(metadata{})
 	// Iterate over all available fields and read the tag value
 	for i := 0; i < t.NumField(); i++ {
 		for _, must := range []bool{true, false} {
@@ -89,6 +94,56 @@ func main() {
 	}
 
 	fmt.Println(string(formatted))
+}
+
+func genStructs() string {
+	t := reflect.TypeOf(metadata{})
+	s := &bytes.Buffer{}
+	fmt.Fprintln(s, "type metadata struct {")
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		fmt.Fprintf(s, "%s %s `%s`\n", field.Name, field.Type, field.Tag)
+	}
+	fmt.Fprint(s, "}")
+	return s.String()
+}
+
+func genKongCMD() string {
+	t := reflect.TypeOf(metadata{})
+	s := &bytes.Buffer{}
+	fmt.Fprintln(s, "type MetadataCmd struct {")
+	fmt.Fprintln(s, "Path string `arg:\"\" name:\"path\" help:\"Metadata path to retrieve\" type:\"path\"`")
+	fmt.Fprintln(s, "IMDSClient *IMDS")
+	fmt.Fprintln(s, "}")
+	fmt.Fprintln(s, `func (c MetadataCmd) Run(ctx context.Context) error {
+		resp, err := c.imdsClient.GetMetadata(ctx, c.Path)
+		if err != nil {
+			return err
+		}
+		fmt.Print(resp)
+		return nil
+		}`)
+	fmt.Fprintln(s, "func (c MetadataCmd) Help() string {")
+	fmt.Fprintf(s, "return `")
+	for i := 0; i < t.NumField(); i++ {
+		// Get the field, returns https://golang.org/pkg/reflect/#StructField
+		field := t.Field(i)
+		// Get the field tag value
+		tag := field.Tag.Get("imds")
+		tagProps := strings.Split(tag, "=")
+		tagPropsMap := map[string]string{}
+		for i := 0; i < len(tagProps)-1; i += 2 {
+			tagPropsMap[tagProps[i]] = tagProps[i+1]
+		}
+		path, ok := tagPropsMap["path"]
+		if !ok {
+			panic(fmt.Sprintf("field %s has no path tag", field.Name))
+		}
+		fmt.Fprintln(s, strings.Replace(path, "meta-data/", "", 1))
+	}
+	fmt.Fprintf(s, "`")
+	fmt.Fprintf(s, "}")
+	return s.String()
 }
 
 func funcSignature(fieldName string, returnType string, must bool, context bool) string {

@@ -3,6 +3,7 @@ module github.com/bwagner5/imds-client
 go 1.19
 
 require (
+	github.com/alecthomas/kong v0.6.1
 	github.com/aws/aws-sdk-go-v2/config v1.17.8
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.12.17
 	github.com/aws/smithy-go v1.13.3
