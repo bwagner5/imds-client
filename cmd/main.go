@@ -46,7 +46,7 @@ func main() {
 		path := strings.Join(root.Args()[1:], "/")
 		resp, err := imdsClient.GetMetadata(ctx, path)
 		if err != nil {
-			fmt.Printf("unable to retrieve metadata %s: %v\n", path, err)
+			fmt.Printf("oops %s: %v\n", path, err)
 			os.Exit(1)
 		}
 		fmt.Println(resp)
@@ -54,14 +54,14 @@ func main() {
 		path := strings.Join(root.Args()[1:], "/")
 		resp, err := imdsClient.GetDynamicData(ctx, path)
 		if err != nil {
-			fmt.Printf("unable to retrieve dynamic data %s: %v\n", path, err)
+			fmt.Printf("oops %s: %v\n", path, err)
 			os.Exit(1)
 		}
 		fmt.Println(resp)
 	case "userdata", "ud":
 		resp, err := imdsClient.GetUserdata(ctx)
 		if err != nil {
-			fmt.Printf("unable to retrieve userdata: %v\n", err)
+			fmt.Printf("oops: %v\n", err)
 			os.Exit(1)
 		}
 		fmt.Println(resp)
