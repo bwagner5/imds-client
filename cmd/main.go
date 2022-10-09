@@ -24,6 +24,7 @@ type Options struct {
 	Version        bool
 }
 
+// Examples:
 // > imds metadata region
 // > imds metadata placement availability-zone
 
