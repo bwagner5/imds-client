@@ -17,7 +17,7 @@ type metadata struct {
 	groupName                       string   `imds:"path=meta-data/placement/group-name"`
 	hostID                          string   `imds:"path=meta-data/placement/host-id"`
 	partitionNumber                 int      `imds:"path=meta-data/placement/partition-number"`
-	region                          int      `imds:"path=meta-data/placement/region"`
+	region                          string   `imds:"path=meta-data/placement/region"`
 	productCodes                    []string `imds:"path=meta-data/product-codes"`
 	publicHostname                  string   `imds:"path=meta-data/public-hostname"`
 	publicIPv4                      string   `imds:"path=meta-data/public-ipv4"`
@@ -296,54 +296,38 @@ func (i IMDS) GetPartitionNumber() (int, error) {
 	return partitionNumberNum, nil
 }
 
-func (i IMDS) MustGetRegionWithContext(ctx context.Context) int {
+func (i IMDS) MustGetRegionWithContext(ctx context.Context) string {
 	region, err := i.GetMetadata(ctx, "meta-data/placement/region")
 	if err != nil {
 		panic(fmt.Sprintf("unable to fetch region: %v", err))
 	}
-	regionNum, err := strconv.Atoi(region)
-	if err != nil {
-		panic(fmt.Sprintf("unable to convert meta-data/placement/region of %s to integer: %v", region, err))
-	}
-	return regionNum
+	return region
 }
 
-func (i IMDS) MustGetRegion() int {
+func (i IMDS) MustGetRegion() string {
 	ctx := context.Background()
 	region, err := i.GetMetadata(ctx, "meta-data/placement/region")
 	if err != nil {
 		panic(fmt.Sprintf("unable to fetch region: %v", err))
 	}
-	regionNum, err := strconv.Atoi(region)
-	if err != nil {
-		panic(fmt.Sprintf("unable to convert meta-data/placement/region of %s to integer: %v", region, err))
-	}
-	return regionNum
+	return region
 }
 
-func (i IMDS) GetRegionWithContext(ctx context.Context) (int, error) {
+func (i IMDS) GetRegionWithContext(ctx context.Context) (string, error) {
 	region, err := i.GetMetadata(ctx, "meta-data/placement/region")
 	if err != nil {
-		return 0, err
+		return "", err
 	}
-	regionNum, err := strconv.Atoi(region)
-	if err != nil {
-		return 0, fmt.Errorf("unable to convert meta-data/placement/region of %s to integer: %w", region, err)
-	}
-	return regionNum, nil
+	return region, nil
 }
 
-func (i IMDS) GetRegion() (int, error) {
+func (i IMDS) GetRegion() (string, error) {
 	ctx := context.Background()
 	region, err := i.GetMetadata(ctx, "meta-data/placement/region")
 	if err != nil {
-		return 0, err
+		return "", err
 	}
-	regionNum, err := strconv.Atoi(region)
-	if err != nil {
-		return 0, fmt.Errorf("unable to convert meta-data/placement/region of %s to integer: %w", region, err)
-	}
-	return regionNum, nil
+	return region, nil
 }
 
 func (i IMDS) MustGetPublicHostnameWithContext(ctx context.Context) string {

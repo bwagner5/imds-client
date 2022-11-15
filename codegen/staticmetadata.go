@@ -18,7 +18,7 @@ type metadata struct {
 	groupName                       string   `imds:"path=meta-data/placement/group-name"`
 	hostID                          string   `imds:"path=meta-data/placement/host-id"`
 	partitionNumber                 int      `imds:"path=meta-data/placement/partition-number"`
-	region                          int      `imds:"path=meta-data/placement/region"`
+	region                          string   `imds:"path=meta-data/placement/region"`
 	productCodes                    []string `imds:"path=meta-data/product-codes"`
 	publicHostname                  string   `imds:"path=meta-data/public-hostname"`
 	publicIPv4                      string   `imds:"path=meta-data/public-ipv4"`
