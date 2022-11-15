@@ -78,10 +78,13 @@ func main() {
 				switch field.Type.Name() {
 				case "string":
 					fmt.Fprintln(src, GenMetadataStringFunc(field.Name, path, must, context))
+					fmt.Fprintln(src, GenMetadataStringFunc(field.Name, strings.Replace(path, "meta-data/", "", 1), must, context))
 				case "int":
 					fmt.Fprintln(src, GenMetadataIntFunc(field.Name, path, must, context))
+					fmt.Fprintln(src, GenMetadataIntFunc(field.Name, strings.Replace(path, "meta-data/", "", 1), must, context))
 				case "[]string":
 					fmt.Fprintln(src, GenMetadataStringSliceFunc(field.Name, path, must, context))
+					fmt.Fprintln(src, GenMetadataStringSliceFunc(field.Name, strings.Replace(path, "meta-data/", "", 1), must, context))
 				default:
 				}
 			}
