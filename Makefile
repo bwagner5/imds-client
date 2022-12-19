@@ -6,7 +6,10 @@ GOPROXY ?= "https://proxy.golang.org|direct"
 
 $(shell mkdir -p ${BUILD_DIR})
 
-all: verify test build
+all: codegen fmt verify test build
+
+codegen: ## Generate the IMDS SDK
+	go run codegen/staticmetadata.go > pkg/imds/zz_metadata.go
 
 build: ## build binary using current OS and Arch
 	go build -a -ldflags="-s -w -X main.version=${VERSION}" -o ${BUILD_DIR}/imds-${GOOS}-${GOARCH} ${BUILD_DIR}/../cmd/main.go
@@ -14,16 +17,21 @@ build: ## build binary using current OS and Arch
 test: ## run go tests and benchmarks
 	go test -bench=. ${BUILD_DIR}/../... -v -coverprofile=coverage.out -covermode=atomic -outputdir=${BUILD_DIR}
 
-verify: ## run depedency verification, download and source formatting and vetting
-	go mod tidy
-	go mod download
-	go vet ./...
-	go fmt ./...
-
 version: ## Output version of local HEAD
 	@echo ${VERSION}
 
-help: ## Display this help
+verify: ## Run Verifications like helm-lint and govulncheck
+	govulncheck ./...
+	golangci-lint run
+
+fmt: ## go fmt the code
+	find . -iname "*.go" -exec go fmt {} \;
+
+licenses: ## Verifies dependency licenses
+	go mod download
+	! go-licenses csv ./... | grep -v -e 'MIT' -e 'Apache-2.0' -e 'BSD-3-Clause' -e 'BSD-2-Clause' -e 'ISC' -e 'MPL-2.0'
+
+help: ## Display help
 	@awk 'BEGIN {FS = ":.*##"; printf "Usage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
-.PHONY: all build test verify help
+.PHONY: all build test verify help codegen licenses fmt version

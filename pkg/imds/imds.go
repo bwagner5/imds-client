@@ -1,3 +1,17 @@
+/*
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package imds
 
 import (
@@ -6,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -14,14 +29,14 @@ import (
 )
 
 const (
-	IPv4Mode        = "ipv4"
-	IPv6Mode        = "ipv6"
+	ipv4Mode        = "ipv4"
+	ipv6Mode        = "ipv6"
 	spotITNPath     = "spot/termination-time"
 	scheduledEvents = "events/maintenance/scheduled"
 )
 
-type IMDS struct {
-	client *imds.Client
+type Client struct {
+	*imds.Client
 }
 
 type ScheduledEventDetail struct {
@@ -42,38 +57,30 @@ type RebalanceRecommendation struct {
 	NoticeTime string `json:"noticeTime"`
 }
 
-func NewClient(ctx context.Context, endpoint string, ipMode string) (*IMDS, error) {
-	cfg, err := config.LoadDefaultConfig(ctx, withIMDSEndpoint(endpoint), withIPMode(ipMode))
+func NewClient(ctx context.Context, endpoint string) (*Client, error) {
+	cfg, err := config.LoadDefaultConfig(ctx, withIMDSEndpoint(endpoint))
 	if err != nil {
 		return nil, err
 	}
-	return &IMDS{
-		client: imds.NewFromConfig(cfg),
+	return &Client{
+		Client: imds.NewFromConfig(cfg),
 	}, nil
 }
 
 func withIMDSEndpoint(imdsEndpoint string) func(*config.LoadOptions) error {
 	return func(lo *config.LoadOptions) error {
 		lo.EC2IMDSEndpoint = imdsEndpoint
-		return nil
-	}
-}
-
-func withIPMode(ipMode string) func(*config.LoadOptions) error {
-	return func(lo *config.LoadOptions) error {
-		if ipMode == IPv6Mode {
+		if net.ParseIP(imdsEndpoint).To4() == nil {
 			lo.EC2IMDSEndpointMode = imds.EndpointModeStateIPv6
-		} else if ipMode == IPv4Mode {
-			lo.EC2IMDSEndpointMode = imds.EndpointModeStateIPv4
 		} else {
-			return fmt.Errorf("invalid IMDS IP Mode \"%s\"", ipMode)
+			lo.EC2IMDSEndpointMode = imds.EndpointModeStateIPv4
 		}
 		return nil
 	}
 }
 
-func (i IMDS) GetMetadata(ctx context.Context, path string) (string, error) {
-	out, err := i.client.GetMetadata(ctx, &imds.GetMetadataInput{
+func (i Client) GetMetadata(ctx context.Context, path string) (string, error) {
+	out, err := i.Client.GetMetadata(ctx, &imds.GetMetadataInput{
 		Path: path,
 	})
 	if err != nil {
@@ -86,8 +93,8 @@ func (i IMDS) GetMetadata(ctx context.Context, path string) (string, error) {
 	return string(content), nil
 }
 
-func (i IMDS) GetDynamicData(ctx context.Context, path string) (string, error) {
-	out, err := i.client.GetDynamicData(ctx, &imds.GetDynamicDataInput{
+func (i Client) GetDynamicData(ctx context.Context, path string) (string, error) {
+	out, err := i.Client.GetDynamicData(ctx, &imds.GetDynamicDataInput{
 		Path: path,
 	})
 	if err != nil {
@@ -100,8 +107,8 @@ func (i IMDS) GetDynamicData(ctx context.Context, path string) (string, error) {
 	return string(content), nil
 }
 
-func (i IMDS) GetUserdata(ctx context.Context) (string, error) {
-	out, err := i.client.GetUserData(ctx, &imds.GetUserDataInput{})
+func (i Client) GetUserdata(ctx context.Context) (string, error) {
+	out, err := i.Client.GetUserData(ctx, &imds.GetUserDataInput{})
 	if err != nil {
 		return "", fmt.Errorf("unable to retrieve userdata: %w", err)
 	}
@@ -113,8 +120,8 @@ func (i IMDS) GetUserdata(ctx context.Context) (string, error) {
 }
 
 // TODO(bwagner5): use spot/instance-action instead
-func (i IMDS) GetSpotInterruptionNotification(ctx context.Context) (*time.Time, bool, error) {
-	output, err := i.client.GetMetadata(ctx, &imds.GetMetadataInput{Path: spotITNPath})
+func (i Client) GetSpotInterruptionNotification(ctx context.Context) (*time.Time, bool, error) {
+	output, err := i.Client.GetMetadata(ctx, &imds.GetMetadataInput{Path: spotITNPath})
 	var re *http.ResponseError
 	if errors.As(err, &re) && re.HTTPStatusCode() == 404 {
 		return nil, false, nil
@@ -123,7 +130,9 @@ func (i IMDS) GetSpotInterruptionNotification(ctx context.Context) (*time.Time, 
 		return nil, false, fmt.Errorf("IMDS Failed to get \"%s\": %w", spotITNPath, err)
 	}
 	termTimeBytes := new(bytes.Buffer)
-	termTimeBytes.ReadFrom(output.Content)
+	if _, err := termTimeBytes.ReadFrom(output.Content); err != nil {
+		return nil, false, err
+	}
 	termTime, err := time.Parse("2006-01-02T15:04:05Z", termTimeBytes.String())
 	if err != nil {
 		return nil, true, fmt.Errorf("invalid time received from \"%s\": %w", spotITNPath, err)
@@ -132,8 +141,8 @@ func (i IMDS) GetSpotInterruptionNotification(ctx context.Context) (*time.Time, 
 }
 
 //TODO(bwagner5): Make this work
-// func (i IMDS) GetMaintenanceEvent(ctx context.Context) (bool, error) {
-// 	output, err := i.client.GetMetadata(ctx, &imds.GetMetadataInput{Path: scheduledEvents})
+// func (i Client) GetMaintenanceEvent(ctx context.Context) (bool, error) {
+// 	output, err := i.Client.GetMetadata(ctx, &imds.GetMetadataInput{Path: scheduledEvents})
 // 	if err != nil {
 // 		return false, fmt.Errorf("IMDS Failed to get \"%s\": %w", scheduledEvents, err)
 // 	}

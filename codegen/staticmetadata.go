@@ -1,3 +1,17 @@
+/*
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package main
 
 import (
@@ -9,6 +23,21 @@ import (
 	"strings"
 )
 
+var header = `/*
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/`
+
+//nolint:golint,unused
 type metadata struct {
 	ramDiskID                       string   `imds:"path=meta-data/ramdisk-id"`
 	reservationID                   string   `imds:"path=meta-data/reservation-id"`
@@ -45,6 +74,7 @@ type metadata struct {
 
 func main() {
 	src := &bytes.Buffer{}
+	fmt.Fprintln(src, header)
 	fmt.Fprintln(src, "package imds")
 	fmt.Fprintln(src, "// DO NOT EDIT")
 	fmt.Fprintln(src, "// THIS FILE IS AUTO GENERATED")
@@ -108,43 +138,43 @@ func genStructs() string {
 	return s.String()
 }
 
-func genKongCMD() string {
-	t := reflect.TypeOf(metadata{})
-	s := &bytes.Buffer{}
-	fmt.Fprintln(s, "type MetadataCmd struct {")
-	fmt.Fprintln(s, "Path string `arg:\"\" name:\"path\" help:\"Metadata path to retrieve\" type:\"path\"`")
-	fmt.Fprintln(s, "IMDSClient *IMDS")
-	fmt.Fprintln(s, "}")
-	fmt.Fprintln(s, `func (c MetadataCmd) Run(ctx context.Context) error {
-		resp, err := c.imdsClient.GetMetadata(ctx, c.Path)
-		if err != nil {
-			return err
-		}
-		fmt.Print(resp)
-		return nil
-		}`)
-	fmt.Fprintln(s, "func (c MetadataCmd) Help() string {")
-	fmt.Fprintf(s, "return `")
-	for i := 0; i < t.NumField(); i++ {
-		// Get the field, returns https://golang.org/pkg/reflect/#StructField
-		field := t.Field(i)
-		// Get the field tag value
-		tag := field.Tag.Get("imds")
-		tagProps := strings.Split(tag, "=")
-		tagPropsMap := map[string]string{}
-		for i := 0; i < len(tagProps)-1; i += 2 {
-			tagPropsMap[tagProps[i]] = tagProps[i+1]
-		}
-		path, ok := tagPropsMap["path"]
-		if !ok {
-			panic(fmt.Sprintf("field %s has no path tag", field.Name))
-		}
-		fmt.Fprintln(s, strings.Replace(path, "meta-data/", "", 1))
-	}
-	fmt.Fprintf(s, "`")
-	fmt.Fprintf(s, "}")
-	return s.String()
-}
+// func genKongCMD() string {
+// 	t := reflect.TypeOf(metadata{})
+// 	s := &bytes.Buffer{}
+// 	fmt.Fprintln(s, "type MetadataCmd struct {")
+// 	fmt.Fprintln(s, "Path string `arg:\"\" name:\"path\" help:\"Metadata path to retrieve\" type:\"path\"`")
+// 	fmt.Fprintln(s, "IMDSClient *IMDS")
+// 	fmt.Fprintln(s, "}")
+// 	fmt.Fprintln(s, `func (c MetadataCmd) Run(ctx context.Context) error {
+// 		resp, err := c.imdsClient.GetMetadata(ctx, c.Path)
+// 		if err != nil {
+// 			return err
+// 		}
+// 		fmt.Print(resp)
+// 		return nil
+// 		}`)
+// 	fmt.Fprintln(s, "func (c MetadataCmd) Help() string {")
+// 	fmt.Fprintf(s, "return `")
+// 	for i := 0; i < t.NumField(); i++ {
+// 		// Get the field, returns https://golang.org/pkg/reflect/#StructField
+// 		field := t.Field(i)
+// 		// Get the field tag value
+// 		tag := field.Tag.Get("imds")
+// 		tagProps := strings.Split(tag, "=")
+// 		tagPropsMap := map[string]string{}
+// 		for i := 0; i < len(tagProps)-1; i += 2 {
+// 			tagPropsMap[tagProps[i]] = tagProps[i+1]
+// 		}
+// 		path, ok := tagPropsMap["path"]
+// 		if !ok {
+// 			panic(fmt.Sprintf("field %s has no path tag", field.Name))
+// 		}
+// 		fmt.Fprintln(s, strings.Replace(path, "meta-data/", "", 1))
+// 	}
+// 	fmt.Fprintf(s, "`")
+// 	fmt.Fprintf(s, "}")
+// 	return s.String()
+// }
 
 func funcSignature(fieldName string, returnType string, must bool, context bool) string {
 	methodFieldName := fmt.Sprint(strings.ToUpper(string(fieldName[0])), fieldName[1:])
@@ -162,7 +192,7 @@ func funcSignature(fieldName string, returnType string, must bool, context bool)
 	}
 	name := fmt.Sprintf("%sGet%s%s", prefix, methodFieldName, suffix)
 	method := &bytes.Buffer{}
-	fmt.Fprintf(method, "func (i IMDS) %s(%s) %s {", name, inputArgs, returnArgs)
+	fmt.Fprintf(method, "func (i Client) %s(%s) %s {", name, inputArgs, returnArgs)
 	if !context {
 		fmt.Fprint(method, "\nctx := context.Background()")
 	}

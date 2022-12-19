@@ -1,0 +1,33 @@
+before:
+  hooks:
+    - go mod tidy
+builds:
+  - main: ./cmd/main.go
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -X main.commit={{.FullCommit}}
+      - -X main.version={{.Version}}
+    targets:
+      - linux_amd64
+      - linux_arm64
+      - darwin_arm64
+      - darwin_amd64
+checksum:
+  name_template: 'checksums.txt'
+snapshot:
+  name_template: "{{ incpatch .Version }}-snapshot"
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+nfpms:
+  - maintainer: Brandon Wagner
+    description: |-
+      a CLI for the EC2 Instance Metadata Service (IMDS)
+    license: Apache-2.0
+    formats:
+      - deb
+      - rpm
