@@ -3,6 +3,7 @@ before:
     - go mod tidy
 builds:
   - main: ./cmd/main.go
+    binary: imds
     env:
       - CGO_ENABLED=0
     ldflags:
