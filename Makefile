@@ -27,6 +27,9 @@ verify: ## Run Verifications like helm-lint and govulncheck
 fmt: ## go fmt the code
 	find . -iname "*.go" -exec go fmt {} \;
 
+toolchain: ## Install the development toolchain
+	hack/toolchain.sh
+
 licenses: ## Verifies dependency licenses
 	go mod download
 	! go-licenses csv ./... | grep -v -e 'MIT' -e 'Apache-2.0' -e 'BSD-3-Clause' -e 'BSD-2-Clause' -e 'ISC' -e 'MPL-2.0'
