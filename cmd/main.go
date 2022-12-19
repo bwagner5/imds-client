@@ -23,8 +23,9 @@ import (
 	"path"
 	"strings"
 
-	"github.com/bwagner5/imds-client/pkg/imds"
 	"github.com/jaypipes/envutil"
+
+	"github.com/bwagner5/imds-client/pkg/imds"
 )
 
 var (
