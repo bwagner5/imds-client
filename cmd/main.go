@@ -16,14 +16,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"path"
 	"strings"
-
-	"github.com/jaypipes/envutil"
 
 	"github.com/bwagner5/imds-client/pkg/imds"
 )
@@ -52,6 +51,7 @@ func main() {
 		os.Exit(0)
 	}
 	ctx := context.Background()
+	// fmt.Println(options.MetadataIP)
 	imdsClient, err := imds.NewClient(ctx, options.MetadataIP)
 	if err != nil {
 		log.Fatalln(err)
@@ -80,12 +80,18 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Println(resp)
+	default:
+		js, err := json.MarshalIndent(imdsClient.GetAll(ctx, root.Args()[0]), "", "    ")
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println(string(js))
 	}
 }
 
 func MustParseFlags(f *flag.FlagSet) Options {
 	options := Options{}
-	f.StringVar(&options.MetadataIP, "metadata-ip", envutil.WithDefault("METADATA_IP", "http://169.254.169.254"), "The IP address of the instance metadata service")
+	f.StringVar(&options.MetadataIP, "metadata-ip", WithDefault("METADATA_IP", "http://169.254.169.254"), "The IP address of the instance metadata service")
 	f.BoolVar(&options.Version, "version", false, "version information")
 	if err := f.Parse(os.Args[1:]); err != nil {
 		panic(fmt.Sprintf("Unable to parse arguments: %v", err))
@@ -109,4 +115,12 @@ func HelpFunc(f *flag.FlagSet) func() {
 			fmt.Printf("      %s\n", fl.Usage)
 		})
 	}
+}
+
+func WithDefault(key string, def string) string {
+	val, ok := os.LookupEnv(key)
+	if !ok {
+		return def
+	}
+	return val
 }

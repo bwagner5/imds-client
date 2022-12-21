@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -148,3 +149,113 @@ func (i Client) GetSpotInterruptionNotification(ctx context.Context) (*time.Time
 // 	}
 // 	return true, nil
 // }
+
+type All struct {
+	Dynamic  map[any]any
+	UserData string
+	MetaData map[any]any
+}
+
+type lookup struct {
+	path     string
+	terminal bool
+}
+
+// imds dyn
+// instance-identity/
+//
+//	document
+//	pkcs7
+//	rsa2048
+//	signature
+func (i Client) GetAll(ctx context.Context, startingPath string) map[string]any {
+	if strings.HasPrefix(startingPath, "/") {
+		startingPath = strings.Replace(startingPath, "/", "", 1)
+	}
+	if !strings.HasSuffix(startingPath, "/") {
+		startingPath = fmt.Sprintf("%s/", startingPath)
+	}
+	all := map[string]any{}
+	paths := []lookup{{path: startingPath, terminal: false}}
+	for len(paths) > 0 {
+		p := paths[0]
+		paths = paths[1:]
+		resp := i.getAt(ctx, p.path)
+		if p.terminal {
+			m := i.initMapAt(all, p)
+			tokens := strings.Split(p.path, "/")
+			m[tokens[len(tokens)-1]] = resp
+		} else {
+			paths = append(paths, i.getLookups(p.path, resp)...)
+		}
+	}
+	return all
+}
+
+func (i Client) getAt(ctx context.Context, path string) []byte {
+	switch {
+	case strings.HasPrefix(path, "dynamic"):
+		out, err := i.Client.GetDynamicData(ctx, &imds.GetDynamicDataInput{Path: strings.Replace(path, "dynamic", "", 1)})
+		if err != nil {
+			panic(err)
+		}
+		resp, err := io.ReadAll(out.Content)
+		if err != nil {
+			panic(err)
+		}
+		return resp
+	case strings.HasPrefix(path, "meta-data"):
+		out, err := i.Client.GetMetadata(ctx, &imds.GetMetadataInput{Path: strings.Replace(path, "meta-data", "", 1)})
+		if err != nil {
+			panic(err)
+		}
+		resp, err := io.ReadAll(out.Content)
+		if err != nil {
+			panic(err)
+		}
+		return resp
+	case strings.HasPrefix(path, "user-data"):
+		out, err := i.Client.GetUserData(ctx, &imds.GetUserDataInput{})
+		if err != nil {
+			panic(err)
+		}
+		resp, err := io.ReadAll(out.Content)
+		if err != nil {
+			panic(err)
+		}
+		return resp
+	default:
+		panic("unsupported IMDS path: " + path)
+	}
+}
+
+func (i Client) getLookups(path string, resp []byte) []lookup {
+	var lookups []lookup
+	for _, line := range strings.Split(string(resp), "\n") {
+		if line == "" {
+			continue
+		}
+		if strings.HasSuffix(line, "/") {
+			lookups = append(lookups, lookup{path: fmt.Sprintf("%s%s", path, line), terminal: false})
+		} else {
+			lookups = append(lookups, lookup{path: fmt.Sprintf("%s%s", path, line), terminal: true})
+		}
+	}
+	return lookups
+}
+
+func (i Client) initMapAt(all map[string]any, l lookup) map[string]any {
+	curr := all
+	tokens := strings.Split(l.path, "/")
+	for i, p := range tokens {
+		if l.terminal && i == len(tokens)-1 {
+			return curr
+		} else if curr[p] == nil {
+			curr[p] = make(map[string]any)
+			curr = curr[p].(map[string]any)
+		} else {
+			curr = curr[p].(map[string]any)
+		}
+	}
+	return curr
+}
