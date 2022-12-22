@@ -177,6 +177,7 @@ func (i Client) WatchRecurse(ctx context.Context, startingPath string) chan map[
 }
 
 func (i Client) GetRecurse(ctx context.Context, startingPath string) map[string]any {
+	errs := map[string]bool{}
 	startingPath = i.normalizePath(startingPath)
 	var paths []lookup
 	all := map[string]any{}
@@ -189,11 +190,14 @@ func (i Client) GetRecurse(ctx context.Context, startingPath string) map[string]
 		p := paths[0]
 		paths = paths[1:]
 		resp, err := i.Get(ctx, p.path)
-		if err != nil {
+		if err != nil && !errs[p.path] {
 			// if the path cannot be found, then we probably didn't identify that it was terminal, so add back to the stack
 			// for re-evaluation as terminal
 			tokens := strings.Split(p.path, "/")
 			paths = append(paths, lookup{path: i.normalizePath(strings.Join(tokens[0:len(tokens)-2], "/")), terminal: true})
+			errs[p.path] = true
+			continue
+		} else if err != nil {
 			continue
 		}
 
@@ -211,7 +215,7 @@ func (i Client) GetRecurse(ctx context.Context, startingPath string) map[string]
 				m[lastToken] = string(resp)
 			} else if err := json.Unmarshal(resp, &jsMap); err == nil {
 				m[lastToken] = jsMap
-			} else if lines := strings.Split(string(resp), "\n"); len(lines) > 1 {
+			} else if lines := strings.Split(string(resp), "\n"); len(lines) > 1 || strings.HasSuffix(i.getLastToken(p.path), "s") {
 				m[lastToken] = lines
 			} else {
 				m[lastToken] = string(resp)
