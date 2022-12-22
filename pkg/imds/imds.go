@@ -17,6 +17,7 @@ package imds
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -161,13 +162,6 @@ type lookup struct {
 	terminal bool
 }
 
-// imds dyn
-// instance-identity/
-//
-//	document
-//	pkcs7
-//	rsa2048
-//	signature
 func (i Client) GetAll(ctx context.Context, startingPath string) map[string]any {
 	if strings.HasPrefix(startingPath, "/") {
 		startingPath = strings.Replace(startingPath, "/", "", 1)
@@ -175,16 +169,33 @@ func (i Client) GetAll(ctx context.Context, startingPath string) map[string]any 
 	if !strings.HasSuffix(startingPath, "/") {
 		startingPath = fmt.Sprintf("%s/", startingPath)
 	}
+	var paths []lookup
 	all := map[string]any{}
-	paths := []lookup{{path: startingPath, terminal: false}}
+	if startingPath == "/" {
+		paths = append(paths, lookup{path: "dynamic/"}, lookup{path: "meta-data/"}, lookup{path: "user-data/"})
+	} else {
+		paths = append(paths, lookup{path: startingPath})
+	}
 	for len(paths) > 0 {
 		p := paths[0]
 		paths = paths[1:]
 		resp := i.getAt(ctx, p.path)
-		if p.terminal {
+		if strings.HasPrefix(p.path, "user-data/") {
+			all["user-data"] = string(resp)
+		} else if p.terminal {
 			m := i.initMapAt(all, p)
 			tokens := strings.Split(p.path, "/")
-			m[tokens[len(tokens)-1]] = resp
+			var jsMap map[string]interface{}
+			lastToken := tokens[len(tokens)-1]
+			if lastToken == "pkcs7" || lastToken == "signature" || lastToken == "rsa2048" {
+				m[lastToken] = string(resp)
+			} else if err := json.Unmarshal(resp, &jsMap); err == nil {
+				m[lastToken] = jsMap
+			} else if lines := strings.Split(string(resp), "\n"); len(lines) > 1 {
+				m[lastToken] = lines
+			} else {
+				m[lastToken] = string(resp)
+			}
 		} else {
 			paths = append(paths, i.getLookups(p.path, resp)...)
 		}
