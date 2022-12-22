@@ -21,8 +21,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/bwagner5/imds-client/pkg/imds"
 	"github.com/spf13/cobra"
+
+	"github.com/bwagner5/imds-client/pkg/imds"
 )
 
 var (
