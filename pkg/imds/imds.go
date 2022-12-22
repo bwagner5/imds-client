@@ -177,12 +177,7 @@ func (i Client) WatchRecurse(ctx context.Context, startingPath string) chan map[
 }
 
 func (i Client) GetRecurse(ctx context.Context, startingPath string) map[string]any {
-	if strings.HasPrefix(startingPath, "/") {
-		startingPath = strings.Replace(startingPath, "/", "", 1)
-	}
-	if !strings.HasSuffix(startingPath, "/") {
-		startingPath = fmt.Sprintf("%s/", startingPath)
-	}
+	startingPath = i.normalizePath(startingPath)
 	var paths []lookup
 	all := map[string]any{}
 	if startingPath == "/" {
@@ -195,15 +190,23 @@ func (i Client) GetRecurse(ctx context.Context, startingPath string) map[string]
 		paths = paths[1:]
 		resp, err := i.Get(ctx, p.path)
 		if err != nil {
-			panic(err)
+			// if the path cannot be found, then we probably didn't identify that it was terminal, so add back to the stack
+			// for re-evaluation as terminal
+			tokens := strings.Split(p.path, "/")
+			paths = append(paths, lookup{path: i.normalizePath(strings.Join(tokens[0:len(tokens)-2], "/")), terminal: true})
+			continue
 		}
+
+		if i.isJSON(resp) {
+			p.terminal = true
+		}
+
 		if strings.HasPrefix(p.path, "user-data/") {
 			all["user-data"] = string(resp)
 		} else if p.terminal {
 			m := i.initMapAt(all, p)
-			tokens := strings.Split(p.path, "/")
 			var jsMap map[string]interface{}
-			lastToken := tokens[len(tokens)-1]
+			lastToken := i.getLastToken(p.path)
 			if lastToken == "pkcs7" || lastToken == "signature" || lastToken == "rsa2048" {
 				m[lastToken] = string(resp)
 			} else if err := json.Unmarshal(resp, &jsMap); err == nil {
@@ -221,12 +224,7 @@ func (i Client) GetRecurse(ctx context.Context, startingPath string) map[string]
 }
 
 func (i Client) Get(ctx context.Context, path string) ([]byte, error) {
-	if strings.HasPrefix(path, "/") {
-		path = strings.Replace(path, "/", "", 1)
-	}
-	if !strings.HasSuffix(path, "/") {
-		path = fmt.Sprintf("%s/", path)
-	}
+	path = i.normalizePath(path)
 	switch {
 	case strings.HasPrefix(path, "dynamic"):
 		out, err := i.Client.GetDynamicData(ctx, &imds.GetDynamicDataInput{Path: strings.Replace(path, "dynamic", "", 1)})
@@ -270,26 +268,52 @@ func (i Client) getLookups(path string, resp []byte) []lookup {
 			continue
 		}
 		if strings.HasSuffix(line, "/") {
-			lookups = append(lookups, lookup{path: fmt.Sprintf("%s%s", path, line), terminal: false})
+			lookups = append(lookups, lookup{path: i.normalizePath(fmt.Sprintf("%s%s", path, line)), terminal: false})
 		} else {
-			lookups = append(lookups, lookup{path: fmt.Sprintf("%s%s", path, line), terminal: true})
+			lookups = append(lookups, lookup{path: i.normalizePath(fmt.Sprintf("%s%s", path, line)), terminal: true})
 		}
 	}
 	return lookups
 }
 
 func (i Client) initMapAt(all map[string]any, l lookup) map[string]any {
-	curr := all
 	tokens := strings.Split(l.path, "/")
 	for i, p := range tokens {
-		if l.terminal && i == len(tokens)-1 {
-			return curr
-		} else if curr[p] == nil {
-			curr[p] = make(map[string]any)
-			curr = curr[p].(map[string]any)
+		if l.terminal && i >= len(tokens)-2 && p != "" {
+			return all
+		} else if all[p] == nil {
+			all[p] = make(map[string]any)
+			all = all[p].(map[string]any)
 		} else {
-			curr = curr[p].(map[string]any)
+			all = all[p].(map[string]any)
 		}
 	}
-	return curr
+	return all
+}
+
+func (i Client) normalizePath(path string) string {
+	if strings.HasPrefix(path, "/") {
+		path = strings.Replace(path, "/", "", 1)
+	}
+	if !strings.HasSuffix(path, "/") {
+		path = fmt.Sprintf("%s/", path)
+	}
+	return path
+}
+
+func (i Client) getLastToken(path string) string {
+	tokens := strings.Split(path, "/")
+	last := tokens[len(tokens)-1]
+	if last == "" && len(tokens) > 1 {
+		return tokens[len(tokens)-2]
+	}
+	return last
+}
+
+func (i Client) isJSON(str []byte) bool {
+	var jsMap map[string]interface{}
+	if err := json.Unmarshal(str, &jsMap); err == nil {
+		return true
+	}
+	return false
 }
