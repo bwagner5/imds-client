@@ -6,7 +6,7 @@ GOPROXY ?= "https://proxy.golang.org|direct"
 
 $(shell mkdir -p ${BUILD_DIR})
 
-all: codegen fmt verify test build
+all: fmt verify test build
 
 codegen: ## Generate the IMDS SDK
 	go run codegen/staticmetadata.go > pkg/imds/zz_metadata.go

@@ -17,103 +17,159 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
-	"log"
 	"os"
-	"path"
 	"strings"
 
 	"github.com/bwagner5/imds-client/pkg/imds"
+	"github.com/spf13/cobra"
 )
 
 var (
-	version string
-	commit  string
+	Version string
+	Commit  string
 )
 
 type Options struct {
-	MetadataIP string
-	Version    bool
+	Endpoint string
+	Recurse  bool
+	Watch    bool
+	Version  bool
+	Help     bool
 }
+
+var (
+	opts = &Options{}
+)
 
 // Examples:
 // > imds metadata region
 // > imds metadata placement availability-zone
 
-func main() {
-	root := flag.NewFlagSet(path.Base(os.Args[0]), flag.ExitOnError)
-	root.Usage = HelpFunc(root)
-	options := MustParseFlags(root)
-	if options.Version {
-		fmt.Printf("%s\n", version)
-		fmt.Printf("Git Commit: %s\n", commit)
-		os.Exit(0)
-	}
-	ctx := context.Background()
-	// fmt.Println(options.MetadataIP)
-	imdsClient, err := imds.NewClient(ctx, options.MetadataIP)
+var rootCmd = &cobra.Command{
+	Use: "imds [path]",
+	Example: `  imds meta-data/region
+  imds /meta-data/network --recurse`,
+	Args:  cobra.RangeArgs(0, 100),
+	Short: "IMDS is a CLI for interacting with the Amazon EC2 Instance Metadata Service (IMDS)",
+	Long: `IMDS is a CLI for interacting with the Amazon EC2 Instance Metadata Service (IMDS). 
+	https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html`,
+	Run: func(cmd *cobra.Command, args []string) {
+		if opts.Version {
+			fmt.Printf("Version: %s\n", Version)
+			fmt.Printf("Commit: %s\n", Commit)
+			return
+		}
+		path := strings.Join(args, "/")
+		queryIMDS(cmd.Context(), path)
+	},
+}
+
+var mdCmd = &cobra.Command{
+	Use: "meta-data [path]",
+	Example: `  imds meta-data region
+  imds md network --recurse`,
+	Aliases: []string{"md"},
+	GroupID: "1",
+	Short:   "Retrieve meta-data information",
+	Run: func(cmd *cobra.Command, args []string) {
+		path := strings.Join(args, "/")
+		if strings.HasPrefix(path, "/") {
+			path = strings.Replace(path, "/", "", 1)
+		}
+		queryIMDS(cmd.Context(), fmt.Sprintf("/meta-data/%s", path))
+	},
+}
+var dynCmd = &cobra.Command{
+	Use: "dynamic",
+	Example: `  imds dynamic/instance-identity
+  imds dyn --recurse`,
+	Aliases: []string{"dyn"},
+	GroupID: "1",
+	Short:   "Retrieve dynamic data",
+	Run: func(cmd *cobra.Command, args []string) {
+		path := strings.Join(args, "/")
+		if strings.HasPrefix(path, "/") {
+			path = strings.Replace(path, "/", "", 1)
+		}
+		queryIMDS(cmd.Context(), fmt.Sprintf("/dynamic/%s", path))
+	},
+}
+var udCmd = &cobra.Command{
+	Use:     "user-data",
+	Example: `  imds ud`,
+	Aliases: []string{"ud"},
+	GroupID: "1",
+	Short:   "Retrieve user-data information",
+	Run: func(cmd *cobra.Command, args []string) {
+		path := strings.Join(args, "/")
+		if strings.HasPrefix(path, "/") {
+			path = strings.Replace(path, "/", "", 1)
+		}
+		queryIMDS(cmd.Context(), fmt.Sprintf("/user-data/%s", path))
+	},
+}
+
+func queryIMDS(ctx context.Context, path string) {
+	imdsClient, err := imds.NewClient(ctx, opts.Endpoint)
 	if err != nil {
-		log.Fatalln(err)
+		fmt.Printf("Unable to create IMDS client with endpoint %s: %v", opts.Endpoint, err)
+		os.Exit(1)
 	}
-	switch root.Arg(0) {
-	case "metadata", "md":
-		path := strings.Join(root.Args()[1:], "/")
-		resp, err := imdsClient.GetMetadata(ctx, path)
-		if err != nil {
-			fmt.Printf("oops %s: %v\n", path, err)
-			os.Exit(1)
+	if opts.Recurse {
+		if opts.Watch {
+			watchChan := imdsClient.WatchRecurse(ctx, path)
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case update := <-watchChan:
+					js, err := json.MarshalIndent(update, "", "    ")
+					if err != nil {
+						fmt.Printf("Unable to recurse starting with path %s: %v", path, err)
+						os.Exit(1)
+					}
+					fmt.Println(string(js))
+				}
+			}
 		}
-		fmt.Println(resp)
-	case "dynamic", "dyn":
-		path := strings.Join(root.Args()[1:], "/")
-		resp, err := imdsClient.GetDynamicData(ctx, path)
+		js, err := json.MarshalIndent(imdsClient.GetRecurse(ctx, path), "", "    ")
 		if err != nil {
-			fmt.Printf("oops %s: %v\n", path, err)
+			fmt.Printf("Unable to recurse starting with path %s: %v", path, err)
 			os.Exit(1)
-		}
-		fmt.Println(resp)
-	case "userdata", "ud":
-		resp, err := imdsClient.GetUserdata(ctx)
-		if err != nil {
-			fmt.Printf("oops: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Println(resp)
-	default:
-		js, err := json.MarshalIndent(imdsClient.GetAll(ctx, root.Args()[0]), "", "    ")
-		if err != nil {
-			panic(err)
 		}
 		fmt.Println(string(js))
+		return
 	}
+	out, err := imdsClient.Get(ctx, path)
+	if err != nil {
+		fmt.Printf("Unable to retrieve path \"%s\": %v", path, err)
+	}
+	var jsMap map[string]interface{}
+	if err := json.Unmarshal(out, &jsMap); err == nil {
+		js, err := json.MarshalIndent(jsMap, "", "    ")
+		if err != nil {
+			fmt.Printf("Unable to pretty print json for path %s: %v", path, err)
+			os.Exit(1)
+		}
+		fmt.Println(string(js))
+		return
+	}
+	fmt.Println(string(out))
 }
 
-func MustParseFlags(f *flag.FlagSet) Options {
-	options := Options{}
-	f.StringVar(&options.MetadataIP, "metadata-ip", WithDefault("METADATA_IP", "http://169.254.169.254"), "The IP address of the instance metadata service")
-	f.BoolVar(&options.Version, "version", false, "version information")
-	if err := f.Parse(os.Args[1:]); err != nil {
-		panic(fmt.Sprintf("Unable to parse arguments: %v", err))
-	}
-	return options
-}
+func main() {
+	ctx := context.Background()
+	rootCmd.PersistentFlags().BoolVarP(&opts.Watch, "watch", "w", false, "Watch an IMDS path and print changes to stdout")
+	rootCmd.PersistentFlags().BoolVarP(&opts.Recurse, "recurse", "r", false, "Recurse down IMDS paths and return all sub-paths as a JSON doc")
+	rootCmd.PersistentFlags().StringVarP(&opts.Endpoint, "endpoint", "e", WithDefault("ENDPOINT", "http://169.254.169.254:80"), "The endpoint to use to connect to IMDS")
+	rootCmd.PersistentFlags().BoolVar(&opts.Version, "version", false, "version information")
+	rootCmd.AddGroup(&cobra.Group{ID: "1", Title: "Query Groups"})
+	rootCmd.AddCommand(mdCmd, dynCmd, udCmd)
 
-func HelpFunc(f *flag.FlagSet) func() {
-	return func() {
-		fmt.Printf("Usage for %s:\n\n", os.Args[0])
-		fmt.Println("   metadata | md")
-		fmt.Println("      Retrieve instance metadata")
-		fmt.Println("   dynamic | dyn")
-		fmt.Println("      Retrieve dynamic data")
-		fmt.Println("   userdata | ud")
-		fmt.Println("      Retrieve userdata")
-		fmt.Println("")
-		fmt.Println(" Flags:")
-		f.VisitAll(func(fl *flag.Flag) {
-			fmt.Printf("   --%s\n", fl.Name)
-			fmt.Printf("      %s\n", fl.Usage)
-		})
+	if err := rootCmd.ExecuteContext(ctx); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
 	}
 }
 

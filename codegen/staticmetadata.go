@@ -85,7 +85,6 @@ func main() {
 		)`)
 
 	fmt.Fprintln(src, genStructs())
-	// fmt.Fprintln(src, genKongCMD())
 	t := reflect.TypeOf(metadata{})
 	// Iterate over all available fields and read the tag value
 	for i := 0; i < t.NumField(); i++ {
@@ -137,44 +136,6 @@ func genStructs() string {
 	fmt.Fprint(s, "}")
 	return s.String()
 }
-
-// func genKongCMD() string {
-// 	t := reflect.TypeOf(metadata{})
-// 	s := &bytes.Buffer{}
-// 	fmt.Fprintln(s, "type MetadataCmd struct {")
-// 	fmt.Fprintln(s, "Path string `arg:\"\" name:\"path\" help:\"Metadata path to retrieve\" type:\"path\"`")
-// 	fmt.Fprintln(s, "IMDSClient *IMDS")
-// 	fmt.Fprintln(s, "}")
-// 	fmt.Fprintln(s, `func (c MetadataCmd) Run(ctx context.Context) error {
-// 		resp, err := c.imdsClient.GetMetadata(ctx, c.Path)
-// 		if err != nil {
-// 			return err
-// 		}
-// 		fmt.Print(resp)
-// 		return nil
-// 		}`)
-// 	fmt.Fprintln(s, "func (c MetadataCmd) Help() string {")
-// 	fmt.Fprintf(s, "return `")
-// 	for i := 0; i < t.NumField(); i++ {
-// 		// Get the field, returns https://golang.org/pkg/reflect/#StructField
-// 		field := t.Field(i)
-// 		// Get the field tag value
-// 		tag := field.Tag.Get("imds")
-// 		tagProps := strings.Split(tag, "=")
-// 		tagPropsMap := map[string]string{}
-// 		for i := 0; i < len(tagProps)-1; i += 2 {
-// 			tagPropsMap[tagProps[i]] = tagProps[i+1]
-// 		}
-// 		path, ok := tagPropsMap["path"]
-// 		if !ok {
-// 			panic(fmt.Sprintf("field %s has no path tag", field.Name))
-// 		}
-// 		fmt.Fprintln(s, strings.Replace(path, "meta-data/", "", 1))
-// 	}
-// 	fmt.Fprintf(s, "`")
-// 	fmt.Fprintf(s, "}")
-// 	return s.String()
-// }
 
 func funcSignature(fieldName string, returnType string, must bool, context bool) string {
 	methodFieldName := fmt.Sprint(strings.ToUpper(string(fieldName[0])), fieldName[1:])

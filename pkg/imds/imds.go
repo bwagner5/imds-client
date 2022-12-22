@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"reflect"
 	"strings"
 	"time"
 
@@ -31,8 +32,6 @@ import (
 )
 
 const (
-	ipv4Mode        = "ipv4"
-	ipv6Mode        = "ipv6"
 	spotITNPath     = "spot/termination-time"
 	scheduledEvents = "events/maintenance/scheduled"
 )
@@ -151,18 +150,33 @@ func (i Client) GetSpotInterruptionNotification(ctx context.Context) (*time.Time
 // 	return true, nil
 // }
 
-type All struct {
-	Dynamic  map[any]any
-	UserData string
-	MetaData map[any]any
-}
-
 type lookup struct {
 	path     string
 	terminal bool
 }
 
-func (i Client) GetAll(ctx context.Context, startingPath string) map[string]any {
+func (i Client) WatchRecurse(ctx context.Context, startingPath string) chan map[string]any {
+	outChan := make(chan map[string]any, 10)
+	go func(ctx context.Context, oc chan map[string]any) {
+		var prev map[string]any
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if out := i.GetRecurse(ctx, startingPath); !reflect.DeepEqual(prev, out) {
+					oc <- out
+					prev = out
+				}
+			}
+		}
+	}(ctx, outChan)
+	return outChan
+}
+
+func (i Client) GetRecurse(ctx context.Context, startingPath string) map[string]any {
 	if strings.HasPrefix(startingPath, "/") {
 		startingPath = strings.Replace(startingPath, "/", "", 1)
 	}
@@ -179,7 +193,10 @@ func (i Client) GetAll(ctx context.Context, startingPath string) map[string]any 
 	for len(paths) > 0 {
 		p := paths[0]
 		paths = paths[1:]
-		resp := i.getAt(ctx, p.path)
+		resp, err := i.Get(ctx, p.path)
+		if err != nil {
+			panic(err)
+		}
 		if strings.HasPrefix(p.path, "user-data/") {
 			all["user-data"] = string(resp)
 		} else if p.terminal {
@@ -203,40 +220,46 @@ func (i Client) GetAll(ctx context.Context, startingPath string) map[string]any 
 	return all
 }
 
-func (i Client) getAt(ctx context.Context, path string) []byte {
+func (i Client) Get(ctx context.Context, path string) ([]byte, error) {
+	if strings.HasPrefix(path, "/") {
+		path = strings.Replace(path, "/", "", 1)
+	}
+	if !strings.HasSuffix(path, "/") {
+		path = fmt.Sprintf("%s/", path)
+	}
 	switch {
 	case strings.HasPrefix(path, "dynamic"):
 		out, err := i.Client.GetDynamicData(ctx, &imds.GetDynamicDataInput{Path: strings.Replace(path, "dynamic", "", 1)})
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 		resp, err := io.ReadAll(out.Content)
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
-		return resp
+		return resp, nil
 	case strings.HasPrefix(path, "meta-data"):
 		out, err := i.Client.GetMetadata(ctx, &imds.GetMetadataInput{Path: strings.Replace(path, "meta-data", "", 1)})
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 		resp, err := io.ReadAll(out.Content)
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
-		return resp
+		return resp, nil
 	case strings.HasPrefix(path, "user-data"):
 		out, err := i.Client.GetUserData(ctx, &imds.GetUserDataInput{})
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 		resp, err := io.ReadAll(out.Content)
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
-		return resp
+		return resp, nil
 	default:
-		panic("unsupported IMDS path: " + path)
+		return nil, fmt.Errorf("unsupported path")
 	}
 }
 
