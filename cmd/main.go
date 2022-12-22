@@ -26,8 +26,8 @@ import (
 )
 
 var (
-	Version string
-	Commit  string
+	version string
+	commit  string
 )
 
 type Options struct {
@@ -56,8 +56,8 @@ var rootCmd = &cobra.Command{
 	https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if opts.Version {
-			fmt.Printf("Version: %s\n", Version)
-			fmt.Printf("Commit: %s\n", Commit)
+			fmt.Printf("Version: %s\n", version)
+			fmt.Printf("Commit: %s\n", commit)
 			return
 		}
 		path := strings.Join(args, "/")
