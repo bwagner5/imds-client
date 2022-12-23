@@ -10,6 +10,7 @@ all: fmt verify test build
 
 codegen: ## Generate the IMDS SDK
 	go run codegen/staticmetadata.go > pkg/imds/zz_metadata.go
+	go run codegen/docs/docs.go > pkg/docs/zz_docs.go
 
 build: ## build binary using current OS and Arch
 	go build -a -ldflags="-s -w -X main.version=${VERSION}" -o ${BUILD_DIR}/imds-${GOOS}-${GOARCH} ${BUILD_DIR}/../cmd/main.go
