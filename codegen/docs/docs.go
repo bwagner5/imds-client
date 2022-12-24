@@ -43,7 +43,7 @@ func main() {
 	dynamicTable := mdTables[1]
 	src := &bytes.Buffer{}
 	fmt.Fprintln(src, header)
-	fmt.Fprintln(src, "package doc")
+	fmt.Fprintln(src, "package docs")
 	fmt.Fprintln(src, "// DO NOT EDIT")
 	fmt.Fprintln(src, "// THIS FILE IS AUTO GENERATED")
 	fmt.Fprintln(src, generateStruct("InstanceMetadataCategory", metadataTable))

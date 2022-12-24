@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"reflect"
 	"strings"
 	"time"
@@ -29,6 +30,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 	"github.com/aws/smithy-go/transport/http"
+	"github.com/bwagner5/imds-client/pkg/docs"
+	"github.com/olekukonko/tablewriter"
+	"github.com/samber/lo"
 )
 
 const (
@@ -178,7 +182,7 @@ func (i Client) WatchRecurse(ctx context.Context, startingPath string) chan map[
 
 func (i Client) GetRecurse(ctx context.Context, startingPath string) map[string]any {
 	errs := map[string]bool{}
-	startingPath = i.normalizePath(startingPath)
+	startingPath = normalizePath(startingPath)
 	var paths []lookup
 	all := map[string]any{}
 	if startingPath == "/" {
@@ -194,41 +198,41 @@ func (i Client) GetRecurse(ctx context.Context, startingPath string) map[string]
 			// if the path cannot be found, then we probably didn't identify that it was terminal, so add back to the stack
 			// for re-evaluation as terminal
 			tokens := strings.Split(p.path, "/")
-			paths = append(paths, lookup{path: i.normalizePath(strings.Join(tokens[0:len(tokens)-2], "/")), terminal: true})
+			paths = append(paths, lookup{path: normalizePath(strings.Join(tokens[0:len(tokens)-2], "/")), terminal: true})
 			errs[p.path] = true
 			continue
 		} else if err != nil {
 			continue
 		}
 
-		if i.isJSON(resp) {
+		if isJSON(resp) {
 			p.terminal = true
 		}
 
 		if strings.HasPrefix(p.path, "user-data/") {
 			all["user-data"] = string(resp)
 		} else if p.terminal {
-			m := i.initMapAt(all, p)
+			m := initMapAt(all, p)
 			var jsMap map[string]interface{}
-			lastToken := i.getLastToken(p.path)
+			lastToken := getLastToken(p.path)
 			if lastToken == "pkcs7" || lastToken == "signature" || lastToken == "rsa2048" {
 				m[lastToken] = string(resp)
 			} else if err := json.Unmarshal(resp, &jsMap); err == nil {
 				m[lastToken] = jsMap
-			} else if lines := strings.Split(string(resp), "\n"); len(lines) > 1 || strings.HasSuffix(i.getLastToken(p.path), "s") {
+			} else if lines := strings.Split(string(resp), "\n"); len(lines) > 1 || strings.HasSuffix(getLastToken(p.path), "s") {
 				m[lastToken] = lines
 			} else {
 				m[lastToken] = string(resp)
 			}
 		} else {
-			paths = append(paths, i.getLookups(p.path, resp)...)
+			paths = append(paths, getLookups(p.path, resp)...)
 		}
 	}
 	return all
 }
 
 func (i Client) Get(ctx context.Context, path string) ([]byte, error) {
-	path = i.normalizePath(path)
+	path = normalizePath(path)
 	switch {
 	case strings.HasPrefix(path, "dynamic"):
 		out, err := i.Client.GetDynamicData(ctx, &imds.GetDynamicDataInput{Path: strings.Replace(path, "dynamic", "", 1)})
@@ -265,22 +269,64 @@ func (i Client) Get(ctx context.Context, path string) ([]byte, error) {
 	}
 }
 
-func (i Client) getLookups(path string, resp []byte) []lookup {
+func AllDocs() map[string]any {
+	return lo.Assign(UserdataDocs(), DynamicDocs(), MetadataDocs())
+}
+
+func UserdataDocs() map[string]any {
+	return map[string]any{"user-data": ""}
+}
+
+func MetadataDocs() map[string]any {
+	nestedMap := map[string]any{}
+	for _, entry := range docs.InstanceMetadataCategoryEntries {
+		curr := initMapAt(nestedMap, lookup{path: entry.Category, terminal: true})
+		curr[getLastToken(entry.Category)] = entry.Description
+	}
+	return map[string]any{"meta-data": nestedMap}
+}
+
+func DynamicDocs() map[string]any {
+	nestedMap := map[string]any{}
+	for _, entry := range docs.DynamicCategoryEntries {
+		curr := initMapAt(nestedMap, lookup{path: entry.Category, terminal: true})
+		curr[getLastToken(entry.Category)] = entry.Description
+	}
+	return map[string]any{"dynamic": nestedMap}
+}
+
+// TODO: create file tree table with help messages...
+func TablePrintMetadata(indentation int) string {
+	table := tablewriter.NewWriter(os.Stdout)
+	t := reflect.TypeOf(docs.InstanceMetadataCategoryEntries[0])
+	var headers []string
+	for i := 0; i < t.NumField(); i++ {
+		headers = append(headers, t.Field(i).Name)
+	}
+	table.SetHeader(headers)
+	// data := [][]string{}
+	// for _, entry := range docs.InstanceMetadataCategoryEntries {
+	// }
+	table.Render() // Send output
+	return ""
+}
+
+func getLookups(path string, resp []byte) []lookup {
 	var lookups []lookup
 	for _, line := range strings.Split(string(resp), "\n") {
 		if line == "" {
 			continue
 		}
 		if strings.HasSuffix(line, "/") {
-			lookups = append(lookups, lookup{path: i.normalizePath(fmt.Sprintf("%s%s", path, line)), terminal: false})
+			lookups = append(lookups, lookup{path: normalizePath(fmt.Sprintf("%s%s", path, line)), terminal: false})
 		} else {
-			lookups = append(lookups, lookup{path: i.normalizePath(fmt.Sprintf("%s%s", path, line)), terminal: true})
+			lookups = append(lookups, lookup{path: normalizePath(fmt.Sprintf("%s%s", path, line)), terminal: true})
 		}
 	}
 	return lookups
 }
 
-func (i Client) initMapAt(all map[string]any, l lookup) map[string]any {
+func initMapAt(all map[string]any, l lookup) map[string]any {
 	tokens := strings.Split(l.path, "/")
 	for i, p := range tokens {
 		if l.terminal && i >= len(tokens)-2 && p != "" {
@@ -295,7 +341,7 @@ func (i Client) initMapAt(all map[string]any, l lookup) map[string]any {
 	return all
 }
 
-func (i Client) normalizePath(path string) string {
+func normalizePath(path string) string {
 	if strings.HasPrefix(path, "/") {
 		path = strings.Replace(path, "/", "", 1)
 	}
@@ -305,7 +351,7 @@ func (i Client) normalizePath(path string) string {
 	return path
 }
 
-func (i Client) getLastToken(path string) string {
+func getLastToken(path string) string {
 	tokens := strings.Split(path, "/")
 	last := tokens[len(tokens)-1]
 	if last == "" && len(tokens) > 1 {
@@ -314,7 +360,7 @@ func (i Client) getLastToken(path string) string {
 	return last
 }
 
-func (i Client) isJSON(str []byte) bool {
+func isJSON(str []byte) bool {
 	var jsMap map[string]interface{}
 	if err := json.Unmarshal(str, &jsMap); err == nil {
 		return true

@@ -15,6 +15,7 @@ limitations under the License.
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -35,6 +36,7 @@ type Options struct {
 	Endpoint string
 	Recurse  bool
 	Watch    bool
+	Paths    bool
 	Version  bool
 	Help     bool
 }
@@ -60,6 +62,9 @@ var rootCmd = &cobra.Command{
 			fmt.Printf("Version: %s\n", version)
 			fmt.Printf("Commit: %s\n", commit)
 			return
+		} else if opts.Paths {
+			fmt.Printf("Possible Paths: \n%s", PrettyPrint(imds.AllDocs(), 2))
+			return
 		}
 		path := strings.Join(args, "/")
 		queryIMDS(cmd.Context(), path)
@@ -73,7 +78,12 @@ var mdCmd = &cobra.Command{
 	Aliases: []string{"md"},
 	GroupID: "1",
 	Short:   "Retrieve meta-data information",
+	Long:    "",
 	Run: func(cmd *cobra.Command, args []string) {
+		if opts.Paths {
+			fmt.Printf("Possible Paths: \n%s", PrettyPrint(imds.MetadataDocs(), 2))
+			return
+		}
 		path := strings.Join(args, "/")
 		if strings.HasPrefix(path, "/") {
 			path = strings.Replace(path, "/", "", 1)
@@ -88,7 +98,12 @@ var dynCmd = &cobra.Command{
 	Aliases: []string{"dyn"},
 	GroupID: "1",
 	Short:   "Retrieve dynamic data",
+	Long:    fmt.Sprintf("Possible Paths: \n%s", PrettyPrint(imds.DynamicDocs(), 2)),
 	Run: func(cmd *cobra.Command, args []string) {
+		if opts.Paths {
+			fmt.Printf("Possible Paths: \n%s", PrettyPrint(imds.DynamicDocs(), 2))
+			return
+		}
 		path := strings.Join(args, "/")
 		if strings.HasPrefix(path, "/") {
 			path = strings.Replace(path, "/", "", 1)
@@ -103,6 +118,10 @@ var udCmd = &cobra.Command{
 	GroupID: "1",
 	Short:   "Retrieve user-data information",
 	Run: func(cmd *cobra.Command, args []string) {
+		if opts.Paths {
+			fmt.Printf("Possible Paths: \n%s", PrettyPrint(imds.UserdataDocs(), 2))
+			return
+		}
 		path := strings.Join(args, "/")
 		if strings.HasPrefix(path, "/") {
 			path = strings.Replace(path, "/", "", 1)
@@ -163,6 +182,7 @@ func main() {
 	ctx := context.Background()
 	rootCmd.PersistentFlags().BoolVarP(&opts.Watch, "watch", "w", false, "Watch an IMDS path and print changes to stdout")
 	rootCmd.PersistentFlags().BoolVarP(&opts.Recurse, "recurse", "r", false, "Recurse down IMDS paths and return all sub-paths as a JSON doc")
+	rootCmd.PersistentFlags().BoolVarP(&opts.Paths, "paths", "p", false, "List all paths for the command")
 	rootCmd.PersistentFlags().StringVarP(&opts.Endpoint, "endpoint", "e", WithDefault("ENDPOINT", "http://169.254.169.254:80"), "The endpoint to use to connect to IMDS")
 	rootCmd.PersistentFlags().BoolVar(&opts.Version, "version", false, "version information")
 	rootCmd.AddGroup(&cobra.Group{ID: "1", Title: "Query Groups"})
@@ -180,4 +200,26 @@ func WithDefault(key string, def string) string {
 		return def
 	}
 	return val
+}
+
+func PrettyPrint(m map[string]any, indentation int) string {
+	src := &bytes.Buffer{}
+	indent := ""
+	for i := 0; i < indentation; i++ {
+		indent += " "
+	}
+	for k, v := range m {
+		switch v.(type) {
+		case string:
+			fmt.Fprintf(src, "%s%s\n", indent, k)
+		}
+	}
+	for k, v := range m {
+		switch vt := v.(type) {
+		case map[string]any:
+			fmt.Fprintf(src, "%s%s/\n", indent, k)
+			fmt.Fprint(src, PrettyPrint(vt, indentation+2))
+		}
+	}
+	return src.String()
 }
