@@ -66,7 +66,7 @@ var rootCmd = &cobra.Command{
 			fmt.Printf("Possible Paths: \n%s", PrettyPrint(imds.AllDocs(), 2))
 			return
 		}
-		path := strings.Join(args, "/")
+		path := strings.Trim(strings.Join(args, "/"), "/")
 		queryIMDS(cmd.Context(), path)
 	},
 }
@@ -84,10 +84,7 @@ var mdCmd = &cobra.Command{
 			fmt.Printf("Possible Paths: \n%s", PrettyPrint(imds.MetadataDocs(), 2))
 			return
 		}
-		path := strings.Join(args, "/")
-		if strings.HasPrefix(path, "/") {
-			path = strings.Replace(path, "/", "", 1)
-		}
+		path := strings.Trim(strings.Join(args, "/"), "/")
 		queryIMDS(cmd.Context(), fmt.Sprintf("/meta-data/%s", path))
 	},
 }
@@ -104,10 +101,7 @@ var dynCmd = &cobra.Command{
 			fmt.Printf("Possible Paths: \n%s", PrettyPrint(imds.DynamicDocs(), 2))
 			return
 		}
-		path := strings.Join(args, "/")
-		if strings.HasPrefix(path, "/") {
-			path = strings.Replace(path, "/", "", 1)
-		}
+		path := strings.Trim(strings.Join(args, "/"), "/")
 		queryIMDS(cmd.Context(), fmt.Sprintf("/dynamic/%s", path))
 	},
 }
@@ -122,10 +116,7 @@ var udCmd = &cobra.Command{
 			fmt.Printf("Possible Paths: \n%s", PrettyPrint(imds.UserdataDocs(), 2))
 			return
 		}
-		path := strings.Join(args, "/")
-		if strings.HasPrefix(path, "/") {
-			path = strings.Replace(path, "/", "", 1)
-		}
+		path := strings.Trim(strings.Join(args, "/"), "/")
 		queryIMDS(cmd.Context(), fmt.Sprintf("/user-data/%s", path))
 	},
 }
