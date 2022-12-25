@@ -20,7 +20,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -129,20 +131,8 @@ func queryIMDS(ctx context.Context, path string) {
 	}
 	if opts.Recurse {
 		if opts.Watch {
-			watchChan := imdsClient.WatchRecurse(ctx, path)
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case update := <-watchChan:
-					js, err := json.MarshalIndent(update, "", "    ")
-					if err != nil {
-						fmt.Printf("Unable to recurse starting with path %s: %v", path, err)
-						os.Exit(1)
-					}
-					fmt.Println(string(js))
-				}
-			}
+			watch(ctx, imdsClient, path)
+			return
 		}
 		js, err := json.MarshalIndent(imdsClient.GetRecurse(ctx, path), "", "    ")
 		if err != nil {
@@ -169,8 +159,26 @@ func queryIMDS(ctx context.Context, path string) {
 	fmt.Println(string(out))
 }
 
+func watch(ctx context.Context, imdsClient *imds.Client, path string) {
+	watchChan := imdsClient.WatchRecurse(ctx, path)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case update := <-watchChan:
+			js, err := json.MarshalIndent(update, "", "    ")
+			if err != nil {
+				fmt.Printf("Unable to recurse starting with path %s: %v", path, err)
+				os.Exit(1)
+			}
+			fmt.Println(string(js))
+		}
+	}
+}
+
 func main() {
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	rootCmd.PersistentFlags().BoolVarP(&opts.Watch, "watch", "w", false, "Watch an IMDS path and print changes to stdout")
 	rootCmd.PersistentFlags().BoolVarP(&opts.Recurse, "recurse", "r", false, "Recurse down IMDS paths and return all sub-paths as a JSON doc")
 	rootCmd.PersistentFlags().BoolVarP(&opts.Paths, "paths", "p", false, "List all paths for the command")
@@ -183,6 +191,7 @@ func main() {
 		fmt.Println(err)
 		os.Exit(1)
 	}
+	<-ctx.Done()
 }
 
 func WithDefault(key string, def string) string {

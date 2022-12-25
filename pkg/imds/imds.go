@@ -15,10 +15,8 @@ limitations under the License.
 package imds
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -29,7 +27,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
-	"github.com/aws/smithy-go/transport/http"
 	"github.com/bwagner5/imds-client/pkg/docs"
 	"github.com/olekukonko/tablewriter"
 	"github.com/samber/lo"
@@ -84,96 +81,40 @@ func withIMDSEndpoint(imdsEndpoint string) func(*config.LoadOptions) error {
 	}
 }
 
-func (i Client) GetMetadata(ctx context.Context, path string) (string, error) {
-	out, err := i.Client.GetMetadata(ctx, &imds.GetMetadataInput{
-		Path: path,
-	})
-	if err != nil {
-		return "", fmt.Errorf("unable to retrieve \"%s\" metadata: %w", path, err)
-	}
-	content, err := io.ReadAll(out.Content)
-	if err != nil {
-		return "", fmt.Errorf("unable to read response of \"%s\" metadata: %w", path, err)
-	}
-	return string(content), nil
-}
-
-func (i Client) GetDynamicData(ctx context.Context, path string) (string, error) {
-	out, err := i.Client.GetDynamicData(ctx, &imds.GetDynamicDataInput{
-		Path: path,
-	})
-	if err != nil {
-		return "", fmt.Errorf("unable to retrieve \"%s\" dynamic data: %w", path, err)
-	}
-	content, err := io.ReadAll(out.Content)
-	if err != nil {
-		return "", fmt.Errorf("unable to read response of \"%s\" dynamic data: %w", path, err)
-	}
-	return string(content), nil
-}
-
-func (i Client) GetUserdata(ctx context.Context) (string, error) {
-	out, err := i.Client.GetUserData(ctx, &imds.GetUserDataInput{})
-	if err != nil {
-		return "", fmt.Errorf("unable to retrieve userdata: %w", err)
-	}
-	content, err := io.ReadAll(out.Content)
-	if err != nil {
-		return "", fmt.Errorf("unable to read response of userdata: %w", err)
-	}
-	return string(content), nil
-}
-
-// TODO(bwagner5): use spot/instance-action instead
-func (i Client) GetSpotInterruptionNotification(ctx context.Context) (*time.Time, bool, error) {
-	output, err := i.Client.GetMetadata(ctx, &imds.GetMetadataInput{Path: spotITNPath})
-	var re *http.ResponseError
-	if errors.As(err, &re) && re.HTTPStatusCode() == 404 {
-		return nil, false, nil
-	}
-	if err != nil {
-		return nil, false, fmt.Errorf("IMDS Failed to get \"%s\": %w", spotITNPath, err)
-	}
-	termTimeBytes := new(bytes.Buffer)
-	if _, err := termTimeBytes.ReadFrom(output.Content); err != nil {
-		return nil, false, err
-	}
-	termTime, err := time.Parse("2006-01-02T15:04:05Z", termTimeBytes.String())
-	if err != nil {
-		return nil, true, fmt.Errorf("invalid time received from \"%s\": %w", spotITNPath, err)
-	}
-	return &termTime, true, nil
-}
-
-//TODO(bwagner5): Make this work
-// func (i Client) GetMaintenanceEvent(ctx context.Context) (bool, error) {
-// 	output, err := i.Client.GetMetadata(ctx, &imds.GetMetadataInput{Path: scheduledEvents})
-// 	if err != nil {
-// 		return false, fmt.Errorf("IMDS Failed to get \"%s\": %w", scheduledEvents, err)
-// 	}
-// 	return true, nil
-// }
-
 type lookup struct {
 	path     string
 	terminal bool
 }
 
-func (i Client) WatchRecurse(ctx context.Context, startingPath string) chan map[string]any {
+func (i Client) WatchRecurse(ctx context.Context, startingPath string) <-chan map[string]any {
 	outChan := make(chan map[string]any, 10)
-	go func(ctx context.Context, oc chan map[string]any) {
+	go func(ctx context.Context, outC chan map[string]any) {
 		var prev map[string]any
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
+		initial := true
+		watchFn := func() {
+			if out := i.GetRecurse(ctx, startingPath); !reflect.DeepEqual(prev, out) {
+				select {
+				case outC <- out:
+					prev = out
+				default: // full channel, so take one off and put on the latest
+					<-outC
+					outC <- out
+					prev = out
+				}
+			}
+		}
 		for {
+			if initial {
+				initial = false
+				watchFn()
+			}
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if out := i.GetRecurse(ctx, startingPath); !reflect.DeepEqual(prev, out) {
-					oc <- out
-					prev = out
-				}
+				watchFn()
 			}
 		}
 	}(ctx, outChan)
@@ -210,8 +151,8 @@ func (i Client) GetRecurse(ctx context.Context, startingPath string) map[string]
 		if strings.HasPrefix(p.path, "user-data") {
 			all["user-data"] = string(resp)
 		} else if p.terminal {
-			m := initMapAt(all, p)
-			lastToken := getLastToken(p.path)
+			m := mapAt(all, p)
+			lastToken := lastToken(p.path)
 			if lastToken == "pkcs7" || lastToken == "signature" || lastToken == "rsa2048" {
 				m[lastToken] = string(resp)
 			} else if jsMap, ok := asJSON(resp); ok {
@@ -277,8 +218,8 @@ func UserdataDocs() map[string]any {
 func MetadataDocs() map[string]any {
 	nestedMap := map[string]any{}
 	for _, entry := range docs.InstanceMetadataCategoryEntries {
-		curr := initMapAt(nestedMap, lookup{path: entry.Category, terminal: true})
-		curr[getLastToken(entry.Category)] = entry.Description
+		curr := mapAt(nestedMap, lookup{path: entry.Category, terminal: true})
+		curr[lastToken(entry.Category)] = entry.Description
 	}
 	return map[string]any{"meta-data": nestedMap}
 }
@@ -286,8 +227,8 @@ func MetadataDocs() map[string]any {
 func DynamicDocs() map[string]any {
 	nestedMap := map[string]any{}
 	for _, entry := range docs.DynamicCategoryEntries {
-		curr := initMapAt(nestedMap, lookup{path: entry.Category, terminal: true})
-		curr[getLastToken(entry.Category)] = entry.Description
+		curr := mapAt(nestedMap, lookup{path: entry.Category, terminal: true})
+		curr[lastToken(entry.Category)] = entry.Description
 	}
 	return map[string]any{"dynamic": nestedMap}
 }
@@ -320,7 +261,7 @@ func getLookups(path string, resp []byte) []lookup {
 	return lookups
 }
 
-func initMapAt(all map[string]any, l lookup) map[string]any {
+func mapAt(all map[string]any, l lookup) map[string]any {
 	tokens := strings.Split(l.path, "/")
 	for i, p := range tokens {
 		if l.terminal && i == len(tokens)-1 {
@@ -335,7 +276,7 @@ func initMapAt(all map[string]any, l lookup) map[string]any {
 	return all
 }
 
-func getLastToken(path string) string {
+func lastToken(path string) string {
 	tokens := strings.Split(path, "/")
 	return tokens[len(tokens)-1]
 }
