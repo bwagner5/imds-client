@@ -6,50 +6,60 @@
 echo "=== IMDS CLI Usage Examples ==="
 echo
 
-echo "1. List top-level categories:"
-echo "$ imds list"
-./imds list
+echo "1. Launch interactive TUI:"
+echo "$ imds"
+echo "# Opens interactive explorer with tree view and search"
 echo
 
-echo "2. Get instance ID (when on EC2):"
+echo "2. Get instance ID (smart lookup):"
 echo "$ imds instance-id"
-echo "# Would output: i-012345"
+echo "# Output: i-1234567890abcdef0"
 echo
 
-echo "3. Get placement information:"
-echo "$ imds placement"
-echo "# Would list: availability-zone, host-id, partition-number, region"
+echo "3. Get region (finds it automatically):"
+echo "$ imds region"
+echo "# Output: us-east-1"
 echo
 
-echo "4. Get specific placement value:"
+echo "4. Get value using explicit path:"
 echo "$ imds placement/availability-zone"
-echo "# Would output: us-west-2a"
+echo "# Output: us-east-1a"
 echo
 
-echo "5. Alternative syntax:"
-echo "$ imds placement availability-zone"
-echo "# Same as above"
+echo "5. Tree view of all keys:"
+echo "$ imds -r"
+echo "# Shows recursive tree structure (keys only)"
 echo
 
-echo "6. List dynamic data:"
-echo "$ imds list dynamic"
-echo "# Lists all dynamic data categories"
+echo "6. Dump all data with values:"
+echo "$ imds --dump"
+echo "# Shows all keys with their values"
 echo
 
-echo "7. Get all data as JSON:"
+echo "7. Dump specific path:"
+echo "$ imds spot --dump"
+echo "# Dumps spot termination info"
+echo
+
+echo "8. Get all data as JSON:"
 echo "$ imds --json"
 echo "# Dumps all IMDS data as JSON"
 echo
 
-echo "8. Watch for spot termination:"
-echo "$ imds spot/termination-time --watch"
+echo "9. Get specific path as JSON:"
+echo "$ imds events --json"
+echo "# Dumps events data as JSON"
+echo
+
+echo "10. Watch for changes:"
+echo "$ imds spot --watch"
 echo "# Monitors for spot instance termination notices"
 echo
 
-echo "9. List all paths recursively:"
-echo "$ imds list --recursive"
-echo "# Shows complete tree structure"
+echo "11. Fuzzy key lookup (typo correction):"
+echo "$ imds instanc-id"
+echo "# Suggests: instance-id"
 echo
 
-echo "Note: Most commands will fail when not running on an EC2 instance"
-echo "      but the CLI structure and help system work anywhere."
+echo "Note: Most commands require running on an EC2 instance."
+echo "      Use -e flag to specify a custom IMDS endpoint for testing."

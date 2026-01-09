@@ -106,9 +106,9 @@ func TestFindSimilar(t *testing.T) {
 
 func TestParseJSON(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    []byte
-		wantOK   bool
+		name   string
+		input  []byte
+		wantOK bool
 	}{
 		{"object", []byte(`{"key": "value"}`), true},
 		{"array", []byte(`[1, 2, 3]`), true},

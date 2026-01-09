@@ -46,7 +46,7 @@ brews:
   - name: imds
     repository:
       owner: bwagner5
-      name: homebrew-tap
+      name: homebrew-wagner
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     directory: Formula
     homepage: "https://github.com/bwagner5/imds"
