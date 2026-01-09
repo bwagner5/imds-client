@@ -15,6 +15,7 @@ limitations under the License.
 package imds
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -155,8 +156,8 @@ func (i Client) GetRecurse(ctx context.Context, startingPath string) map[string]
 			lastToken := lastToken(p.path)
 			if lastToken == "pkcs7" || lastToken == "signature" || lastToken == "rsa2048" {
 				m[lastToken] = string(resp)
-			} else if jsMap, ok := asJSON(resp); ok {
-				m[lastToken] = jsMap
+			} else if jsData, ok := asJSON(resp); ok {
+				m[lastToken] = jsData
 			} else if lines := strings.Split(string(resp), "\n"); len(lines) > 1 || strings.HasSuffix(lastToken, "s") {
 				m[lastToken] = lines
 			} else {
@@ -171,9 +172,17 @@ func (i Client) GetRecurse(ctx context.Context, startingPath string) map[string]
 
 func (i Client) Get(ctx context.Context, path string) ([]byte, error) {
 	path = strings.Trim(path, "/")
+	
+	// Handle empty path - return top-level listing
+	if path == "" {
+		return []byte("meta-data/\ndynamic/\nuser-data"), nil
+	}
+	
 	switch {
 	case strings.HasPrefix(path, "dynamic"):
-		out, err := i.Client.GetDynamicData(ctx, &imds.GetDynamicDataInput{Path: strings.Replace(path, "dynamic", "", 1)})
+		dynamicPath := strings.TrimPrefix(path, "dynamic")
+		dynamicPath = strings.TrimPrefix(dynamicPath, "/")
+		out, err := i.Client.GetDynamicData(ctx, &imds.GetDynamicDataInput{Path: dynamicPath})
 		if err != nil {
 			return nil, err
 		}
@@ -183,7 +192,9 @@ func (i Client) Get(ctx context.Context, path string) ([]byte, error) {
 		}
 		return resp, nil
 	case strings.HasPrefix(path, "meta-data"):
-		out, err := i.Client.GetMetadata(ctx, &imds.GetMetadataInput{Path: strings.Replace(path, "meta-data", "", 1)})
+		metadataPath := strings.TrimPrefix(path, "meta-data")
+		metadataPath = strings.TrimPrefix(metadataPath, "/")
+		out, err := i.Client.GetMetadata(ctx, &imds.GetMetadataInput{Path: metadataPath})
 		if err != nil {
 			return nil, err
 		}
@@ -203,7 +214,79 @@ func (i Client) Get(ctx context.Context, path string) ([]byte, error) {
 		}
 		return resp, nil
 	default:
-		return nil, fmt.Errorf("unsupported path")
+		return nil, fmt.Errorf("unsupported path: %s", path)
+	}
+}
+
+// FindKey searches recursively for a key and returns the first matching path
+func (i Client) FindKey(ctx context.Context, key string) string {
+	// Search in meta-data first
+	if path := i.findKeyInPath(ctx, "meta-data", key); path != "" {
+		return "meta-data/" + path
+	}
+	
+	// Then search in dynamic
+	if path := i.findKeyInPath(ctx, "dynamic", key); path != "" {
+		return "dynamic/" + path
+	}
+	
+	return ""
+}
+
+func (i Client) findKeyInPath(ctx context.Context, basePath, key string) string {
+	data := i.GetRecurse(ctx, basePath)
+	if baseData, ok := data[basePath].(map[string]interface{}); ok {
+		return i.searchInData(baseData, "", key)
+	}
+	return ""
+}
+
+func (i Client) searchInData(data interface{}, currentPath, key string) string {
+	var foundPaths []string
+	i.searchInDataRecursive(data, currentPath, key, &foundPaths)
+	
+	if len(foundPaths) == 0 {
+		return ""
+	}
+	
+	// Prefer the deepest path (most specific)
+	deepestPath := foundPaths[0]
+	maxDepth := strings.Count(deepestPath, "/")
+	
+	for _, path := range foundPaths {
+		depth := strings.Count(path, "/")
+		if depth > maxDepth {
+			deepestPath = path
+			maxDepth = depth
+		}
+	}
+	
+	return deepestPath
+}
+
+func (i Client) searchInDataRecursive(data interface{}, currentPath, key string, foundPaths *[]string) {
+	switch v := data.(type) {
+	case map[string]interface{}:
+		// Check if the key exists at this level
+		if _, exists := v[key]; exists {
+			if currentPath == "" {
+				*foundPaths = append(*foundPaths, key)
+			} else {
+				*foundPaths = append(*foundPaths, currentPath+"/"+key)
+			}
+		}
+		
+		// Recursively search in subdirectories
+		for subKey, subValue := range v {
+			var newPath string
+			if currentPath == "" {
+				newPath = subKey
+			} else {
+				newPath = currentPath + "/" + subKey
+			}
+			
+			i.searchInDataRecursive(subValue, newPath, key, foundPaths)
+		}
 	}
 }
 
@@ -233,6 +316,28 @@ func DynamicDocs() map[string]any {
 	return map[string]any{"dynamic": nestedMap}
 }
 
+func PrettyPrint(m map[string]any, indentation int) string {
+	src := &bytes.Buffer{}
+	indent := ""
+	for i := 0; i < indentation; i++ {
+		indent += " "
+	}
+	for k, v := range m {
+		switch v.(type) {
+		case string:
+			fmt.Fprintf(src, "%s%s\n", indent, k)
+		}
+	}
+	for k, v := range m {
+		switch vt := v.(type) {
+		case map[string]any:
+			fmt.Fprintf(src, "%s%s/\n", indent, k)
+			fmt.Fprint(src, PrettyPrint(vt, indentation+2))
+		}
+	}
+	return src.String()
+}
+
 // TODO: create file tree table with help messages...
 func TablePrintMetadata(indentation int) string {
 	table := tablewriter.NewWriter(os.Stdout)
@@ -242,11 +347,39 @@ func TablePrintMetadata(indentation int) string {
 		headers = append(headers, t.Field(i).Name)
 	}
 	table.SetHeader(headers)
-	// data := [][]string{}
-	// for _, entry := range docs.InstanceMetadataCategoryEntries {
-	// }
+
 	table.Render() // Send output
 	return ""
+}
+
+func rows(pathPrefix string, m map[string]any, indentation int) [][]string {
+	data := [][]string{}
+	for k, v := range m {
+		switch v.(type) {
+		case string:
+			var row []string
+			for i := 0; i < indentation; i++ {
+				row = append(row, "")
+			}
+			row = append(row, fmt.Sprintf("%s/%s", pathPrefix, k))
+			data = append(data, row)
+		}
+	}
+	for k, v := range m {
+		switch v.(type) {
+		case map[string]any:
+			var row []string
+			for i := 0; i < indentation; i++ {
+				row = append(row, "")
+			}
+			row = append(row, fmt.Sprintf("%s/%s", pathPrefix, k))
+			data = append(data, row)
+			if vMap, ok := v.(map[string]any); ok {
+				data = append(data, rows(fmt.Sprintf("%s/%s", pathPrefix, k), vMap, indentation+1)...)
+			}
+		}
+	}
+	return data
 }
 
 func getLookups(path string, resp []byte) []lookup {
@@ -270,7 +403,14 @@ func mapAt(all map[string]any, l lookup) map[string]any {
 			all[p] = make(map[string]any)
 			all = all[p].(map[string]any)
 		} else {
-			all = all[p].(map[string]any)
+			// Check if the value is already a map
+			if m, ok := all[p].(map[string]any); ok {
+				all = m
+			} else {
+				// If it's not a map, create a new one and replace
+				all[p] = make(map[string]any)
+				all = all[p].(map[string]any)
+			}
 		}
 	}
 	return all
@@ -281,10 +421,15 @@ func lastToken(path string) string {
 	return tokens[len(tokens)-1]
 }
 
-func asJSON(str []byte) (map[string]any, bool) {
-	var jsMap map[string]any
-	if err := json.Unmarshal(str, &jsMap); err != nil {
+func asJSON(str []byte) (any, bool) {
+	var jsData any
+	if err := json.Unmarshal(str, &jsData); err != nil {
 		return nil, false
 	}
-	return jsMap, true
+	// Only return true for objects and arrays, not primitives
+	switch jsData.(type) {
+	case map[string]any, []any:
+		return jsData, true
+	}
+	return nil, false
 }

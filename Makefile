@@ -15,6 +15,9 @@ codegen: ## Generate the IMDS SDK
 build: ## build binary using current OS and Arch
 	go build -a -ldflags="-s -w -X main.version=${VERSION}" -o ${BUILD_DIR}/imds-${GOOS}-${GOARCH} ${BUILD_DIR}/../cmd/main.go
 
+build-local: ## build binary for local development
+	go build -ldflags="-X main.version=${VERSION}" -o imds ./cmd/main.go
+
 test: ## run go tests and benchmarks
 	go test -bench=. ${BUILD_DIR}/../... -v -coverprofile=coverage.out -covermode=atomic -outputdir=${BUILD_DIR}
 

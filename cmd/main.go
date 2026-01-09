@@ -15,7 +15,6 @@ limitations under the License.
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -35,191 +34,389 @@ var (
 )
 
 type Options struct {
-	Endpoint string
-	Recurse  bool
-	Watch    bool
-	Paths    bool
-	Version  bool
-	Help     bool
+	Endpoint  string
+	Recursive bool
+	Dump      bool
+	JSON      bool
+	Watch     bool
+	Version   bool
 }
 
-var (
-	opts = &Options{}
-)
-
-// Examples:
-// > imds metadata region
-// > imds metadata placement availability-zone
+var opts = &Options{}
 
 var rootCmd = &cobra.Command{
-	Use: "imds [path]",
-	Example: `  imds meta-data/region
-  imds /meta-data/network --recurse`,
-	Args:  cobra.RangeArgs(0, 100),
-	Short: "IMDS is a CLI for interacting with the Amazon EC2 Instance Metadata Service (IMDS)",
-	Long: `IMDS is a CLI for interacting with the Amazon EC2 Instance Metadata Service (IMDS). 
-	https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html`,
+	Use:   "imds [path]",
+	Short: "EC2 Instance Metadata Service CLI",
+	Long:  "A CLI for accessing EC2 Instance Metadata Service (IMDS) information",
+	Example: `  imds instance-id
+  imds placement/host-id
+  imds placement host-id
+  imds list
+  imds list dynamic
+  imds list --recursive`,
+	Args: cobra.ArbitraryArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		if opts.Version {
-			fmt.Printf("Version: %s\n", version)
-			fmt.Printf("Commit: %s\n", commit)
-			return
-		} else if opts.Paths {
-			fmt.Printf("Possible Paths: \n%s", PrettyPrint(imds.AllDocs(), 2))
+			fmt.Printf("Version: %s\nCommit: %s\n", version, commit)
 			return
 		}
-		path := strings.Trim(strings.Join(args, "/"), "/")
-		queryIMDS(cmd.Context(), path)
+		
+		ctx := cmd.Context()
+		client, err := imds.NewClient(ctx, opts.Endpoint)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating IMDS client: %v\n", err)
+			os.Exit(1)
+		}
+
+		if len(args) == 0 {
+			handleDumpAll(ctx, client)
+			return
+		}
+
+		if args[0] == "list" {
+			handleList(ctx, client, args[1:])
+			return
+		}
+
+		path := strings.Join(args, "/")
+		path = strings.ReplaceAll(path, " ", "/")
+		handleQuery(ctx, client, path)
 	},
 }
 
-var mdCmd = &cobra.Command{
-	Use: "meta-data [path]",
-	Example: `  imds meta-data region
-  imds md network --recurse`,
-	Aliases: []string{"md"},
-	GroupID: "1",
-	Short:   "Retrieve meta-data information",
-	Long:    "",
-	Run: func(cmd *cobra.Command, args []string) {
-		if opts.Paths {
-			fmt.Printf("Possible Paths: \n%s", PrettyPrint(imds.MetadataDocs(), 2))
+func handleDumpAll(ctx context.Context, client *imds.Client) {
+	if opts.Dump {
+		data := client.GetRecurse(ctx, "")
+		if opts.JSON {
+			js, _ := json.MarshalIndent(data, "", "  ")
+			fmt.Println(string(js))
 			return
 		}
-		path := strings.Trim(strings.Join(args, "/"), "/")
-		queryIMDS(cmd.Context(), fmt.Sprintf("/meta-data/%s", path))
-	},
-}
-var dynCmd = &cobra.Command{
-	Use: "dynamic",
-	Example: `  imds dynamic/instance-identity
-  imds dyn --recurse`,
-	Aliases: []string{"dyn"},
-	GroupID: "1",
-	Short:   "Retrieve dynamic data",
-	Long:    fmt.Sprintf("Possible Paths: \n%s", PrettyPrint(imds.DynamicDocs(), 2)),
-	Run: func(cmd *cobra.Command, args []string) {
-		if opts.Paths {
-			fmt.Printf("Possible Paths: \n%s", PrettyPrint(imds.DynamicDocs(), 2))
+		printDump(data, 0)
+		return
+	}
+
+	if opts.Recursive {
+		data := client.GetRecurse(ctx, "")
+		if len(data) == 0 {
+			fmt.Println("meta-data/")
+			fmt.Println("dynamic/")
+			fmt.Println("user-data")
 			return
 		}
-		path := strings.Trim(strings.Join(args, "/"), "/")
-		queryIMDS(cmd.Context(), fmt.Sprintf("/dynamic/%s", path))
-	},
-}
-var udCmd = &cobra.Command{
-	Use:     "user-data",
-	Example: `  imds ud`,
-	Aliases: []string{"ud"},
-	GroupID: "1",
-	Short:   "Retrieve user-data information",
-	Run: func(cmd *cobra.Command, args []string) {
-		if opts.Paths {
-			fmt.Printf("Possible Paths: \n%s", PrettyPrint(imds.UserdataDocs(), 2))
-			return
-		}
-		path := strings.Trim(strings.Join(args, "/"), "/")
-		queryIMDS(cmd.Context(), fmt.Sprintf("/user-data/%s", path))
-	},
+		printTree(data, 0)
+		return
+	}
+
+	if opts.JSON {
+		data := client.GetRecurse(ctx, "")
+		js, _ := json.MarshalIndent(data, "", "  ")
+		fmt.Println(string(js))
+		return
+	}
+
+	fmt.Println("meta-data/")
+	fmt.Println("dynamic/")
+	fmt.Println("user-data")
 }
 
-func queryIMDS(ctx context.Context, path string) {
-	imdsClient, err := imds.NewClient(ctx, opts.Endpoint)
+func handleList(ctx context.Context, client *imds.Client, args []string) {
+	if len(args) == 0 {
+		if opts.Recursive {
+			data := client.GetRecurse(ctx, "")
+			printTree(data, 0)
+			return
+		}
+		fmt.Println("meta-data/")
+		fmt.Println("dynamic/")
+		fmt.Println("user-data")
+		return
+	}
+
+	path := args[0]
+	if opts.Recursive {
+		data := client.GetRecurse(ctx, path)
+		if len(data) == 0 {
+			fmt.Printf("No data available for %s\n", path)
+			return
+		}
+		printTree(data, 0)
+		return
+	}
+
+	// List specific category
+	switch path {
+	case "dynamic":
+		printPaths(imds.DynamicDocs()["dynamic"])
+	case "meta-data":
+		printPaths(imds.MetadataDocs()["meta-data"])
+	case "user-data":
+		fmt.Println("user-data")
+	default:
+		resp, err := client.Get(ctx, ensurePrefix(path))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error listing %s: %v\n", path, err)
+			os.Exit(1)
+		}
+
+		lines := strings.Split(strings.TrimSpace(string(resp)), "\n")
+		for _, line := range lines {
+			if line != "" {
+				fmt.Println(line)
+			}
+		}
+	}
+}
+
+func handleQuery(ctx context.Context, client *imds.Client, path string) {
+	if opts.Watch {
+		watchPath(ctx, client, ensurePrefix(path))
+		return
+	}
+
+	if opts.Dump || opts.Recursive {
+		data := client.GetRecurse(ctx, ensurePrefix(path))
+		if opts.JSON {
+			js, _ := json.MarshalIndent(data, "", "  ")
+			fmt.Println(string(js))
+			return
+		}
+		if opts.Dump {
+			printDump(data, 0)
+		} else {
+			printTree(data, 0)
+		}
+		return
+	}
+
+	originalPath := path
+
+	// For simple keys (no slashes), always try smart lookup first
+	if !strings.Contains(originalPath, "/") {
+		if foundPath := client.FindKey(ctx, originalPath); foundPath != "" {
+			if smartResp, smartErr := client.Get(ctx, foundPath); smartErr == nil {
+				// Check if the smart lookup result is a terminal value (not a directory)
+				smartContent := strings.TrimSpace(string(smartResp))
+				if !strings.Contains(smartContent, "\n") && !strings.HasSuffix(smartContent, "/") {
+					// This is a terminal value, use it
+					outputResponse(smartResp, foundPath)
+					return
+				}
+			}
+		}
+	}
+
+	// Fallback to exact path lookup with prefix
+	path = ensurePrefix(path)
+	resp, err := client.Get(ctx, path)
 	if err != nil {
-		fmt.Printf("Unable to create IMDS client with endpoint %s: %v", opts.Endpoint, err)
+		fmt.Fprintf(os.Stderr, "Error querying %s: %v\n", path, err)
 		os.Exit(1)
 	}
-	if opts.Recurse {
-		if opts.Watch {
-			watch(ctx, imdsClient, path)
-			return
-		}
-		js, err := json.MarshalIndent(imdsClient.GetRecurse(ctx, path), "", "    ")
-		if err != nil {
-			fmt.Printf("Unable to recurse starting with path %s: %v", path, err)
-			os.Exit(1)
-		}
-		fmt.Println(string(js))
-		return
-	}
-	out, err := imdsClient.Get(ctx, path)
-	if err != nil {
-		fmt.Printf("Unable to retrieve path \"%s\": %v", path, err)
-	}
-	var jsMap map[string]interface{}
-	if err := json.Unmarshal(out, &jsMap); err == nil {
-		js, err := json.MarshalIndent(jsMap, "", "    ")
-		if err != nil {
-			fmt.Printf("Unable to pretty print json for path %s: %v", path, err)
-			os.Exit(1)
-		}
-		fmt.Println(string(js))
-		return
-	}
-	fmt.Println(string(out))
+
+	outputResponse(resp, path)
 }
 
-func watch(ctx context.Context, imdsClient *imds.Client, path string) {
-	watchChan := imdsClient.WatchRecurse(ctx, path)
+func outputResponse(resp []byte, path string) {
+	// Try to parse as JSON first
+	var jsonData interface{}
+	if json.Unmarshal(resp, &jsonData) == nil {
+		if opts.JSON {
+			js, _ := json.MarshalIndent(jsonData, "", "  ")
+			fmt.Println(string(js))
+		} else {
+			js, _ := json.MarshalIndent(jsonData, "", "  ")
+			fmt.Println(string(js))
+		}
+		return
+	}
+
+	// Check if it's a directory listing
+	content := strings.TrimSpace(string(resp))
+	if strings.Contains(content, "\n") && !strings.Contains(content, " ") {
+		// Looks like a directory listing
+		lines := strings.Split(content, "\n")
+		for _, line := range lines {
+			if line != "" {
+				fmt.Println(line)
+			}
+		}
+		return
+	}
+
+	// Plain text response
+	fmt.Print(content)
+	if !strings.HasSuffix(content, "\n") {
+		fmt.Println()
+	}
+}
+
+func watchPath(ctx context.Context, client *imds.Client, path string) {
+	watchChan := client.WatchRecurse(ctx, path)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case update := <-watchChan:
-			js, err := json.MarshalIndent(update, "", "    ")
-			if err != nil {
-				fmt.Printf("Unable to recurse starting with path %s: %v", path, err)
-				os.Exit(1)
-			}
+			js, _ := json.MarshalIndent(update, "", "  ")
 			fmt.Println(string(js))
 		}
+	}
+}
+
+func normalizePath(args []string) string {
+	path := strings.Join(args, "/")
+	path = strings.ReplaceAll(path, " ", "/")
+	return ensurePrefix(path)
+}
+
+func ensurePrefix(path string) string {
+	path = strings.Trim(path, "/")
+	if path == "" {
+		return ""
+	}
+	
+	// Add appropriate prefix if not present
+	if !strings.HasPrefix(path, "meta-data/") && 
+	   !strings.HasPrefix(path, "dynamic/") && 
+	   !strings.HasPrefix(path, "user-data") {
+		// Default to meta-data for common queries
+		return "meta-data/" + path
+	}
+	return path
+}
+
+func printPaths(data interface{}) {
+	switch v := data.(type) {
+	case map[string]interface{}:
+		for key := range v {
+			fmt.Printf("%s/\n", key)
+		}
+	case string:
+		fmt.Println(v)
+	}
+}
+
+func printTree(data interface{}, depth int) {
+	m, ok := data.(map[string]interface{})
+	if !ok {
+		return
+	}
+	indent := strings.Repeat("  ", depth)
+	for key, value := range m {
+		if _, isMap := value.(map[string]interface{}); isMap {
+			fmt.Printf("%s%s/\n", indent, key)
+			printTree(value, depth+1)
+		} else {
+			fmt.Printf("%s%s\n", indent, key)
+		}
+	}
+}
+
+func printDump(data interface{}, depth int) {
+	m, ok := data.(map[string]interface{})
+	if !ok {
+		return
+	}
+	indent := strings.Repeat("  ", depth)
+	for key, value := range m {
+		switch v := value.(type) {
+		case map[string]interface{}:
+			fmt.Printf("%s%s/\n", indent, key)
+			printDump(v, depth+1)
+		case []interface{}:
+			fmt.Printf("%s%s:\n", indent, key)
+			for _, item := range v {
+				if m, ok := item.(map[string]interface{}); ok {
+					fmt.Printf("%s  -\n", indent)
+					printDumpValue(m, depth+2)
+				} else {
+					fmt.Printf("%s  - %v\n", indent, item)
+				}
+			}
+		case string:
+			// Try to parse as JSON
+			var js interface{}
+			if json.Unmarshal([]byte(v), &js) == nil {
+				fmt.Printf("%s%s:\n", indent, key)
+				printDumpValue(js, depth+1)
+			} else if strings.Contains(v, "\n") {
+				fmt.Printf("%s%s: |\n", indent, key)
+				for _, line := range strings.Split(v, "\n") {
+					fmt.Printf("%s  %s\n", indent, line)
+				}
+			} else {
+				fmt.Printf("%s%s: %s\n", indent, key, v)
+			}
+		default:
+			fmt.Printf("%s%s: %v\n", indent, key, v)
+		}
+	}
+}
+
+func printDumpValue(data interface{}, depth int) {
+	indent := strings.Repeat("  ", depth)
+	switch v := data.(type) {
+	case map[string]interface{}:
+		for key, value := range v {
+			switch val := value.(type) {
+			case map[string]interface{}:
+				fmt.Printf("%s%s/\n", indent, key)
+				printDumpValue(val, depth+1)
+			case []interface{}:
+				fmt.Printf("%s%s:\n", indent, key)
+				for _, item := range val {
+					if m, ok := item.(map[string]interface{}); ok {
+						fmt.Printf("%s  -\n", indent)
+						printDumpValue(m, depth+2)
+					} else {
+						fmt.Printf("%s  - %v\n", indent, item)
+					}
+				}
+			default:
+				fmt.Printf("%s%s: %v\n", indent, key, value)
+			}
+		}
+	case []interface{}:
+		for _, item := range v {
+			if m, ok := item.(map[string]interface{}); ok {
+				fmt.Printf("%s-\n", indent)
+				printDumpValue(m, depth+1)
+			} else {
+				fmt.Printf("%s- %v\n", indent, item)
+			}
+		}
+	default:
+		fmt.Printf("%s%v\n", indent, v)
 	}
 }
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	rootCmd.PersistentFlags().BoolVarP(&opts.Watch, "watch", "w", false, "Watch an IMDS path and print changes to stdout")
-	rootCmd.PersistentFlags().BoolVarP(&opts.Recurse, "recurse", "r", false, "Recurse down IMDS paths and return all sub-paths as a JSON doc")
-	rootCmd.PersistentFlags().BoolVarP(&opts.Paths, "paths", "p", false, "List all paths for the command")
-	rootCmd.PersistentFlags().StringVarP(&opts.Endpoint, "endpoint", "e", WithDefault("ENDPOINT", "http://169.254.169.254:80"), "The endpoint to use to connect to IMDS")
-	rootCmd.PersistentFlags().BoolVar(&opts.Version, "version", false, "version information")
-	rootCmd.AddGroup(&cobra.Group{ID: "1", Title: "Query Groups"})
-	rootCmd.AddCommand(mdCmd, dynCmd, udCmd)
+
+	rootCmd.PersistentFlags().StringVarP(&opts.Endpoint, "endpoint", "e", 
+		withDefault("IMDS_ENDPOINT", "http://169.254.169.254"), "IMDS endpoint")
+	rootCmd.PersistentFlags().BoolVarP(&opts.Recursive, "recursive", "r", false, 
+		"List all paths recursively (tree structure, keys only)")
+	rootCmd.PersistentFlags().BoolVarP(&opts.Dump, "dump", "d", false, 
+		"Dump all paths recursively with values")
+	rootCmd.PersistentFlags().BoolVarP(&opts.JSON, "json", "j", false, 
+		"Output in JSON format")
+	rootCmd.PersistentFlags().BoolVarP(&opts.Watch, "watch", "w", false, 
+		"Watch for changes")
+	rootCmd.PersistentFlags().BoolVar(&opts.Version, "version", false, 
+		"Show version information")
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
-		fmt.Println(err)
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	<-ctx.Done()
 }
 
-func WithDefault(key string, def string) string {
-	val, ok := os.LookupEnv(key)
-	if !ok {
-		return def
+func withDefault(key, defaultValue string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
 	}
-	return val
-}
-
-func PrettyPrint(m map[string]any, indentation int) string {
-	src := &bytes.Buffer{}
-	indent := ""
-	for i := 0; i < indentation; i++ {
-		indent += " "
-	}
-	for k, v := range m {
-		switch v.(type) {
-		case string:
-			fmt.Fprintf(src, "%s%s\n", indent, k)
-		}
-	}
-	for k, v := range m {
-		switch vt := v.(type) {
-		case map[string]any:
-			fmt.Fprintf(src, "%s%s/\n", indent, k)
-			fmt.Fprint(src, PrettyPrint(vt, indentation+2))
-		}
-	}
-	return src.String()
+	return defaultValue
 }
