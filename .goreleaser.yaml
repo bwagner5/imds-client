@@ -1,33 +1,65 @@
 before:
   hooks:
     - go mod tidy
+    - go test ./...
+
 builds:
   - main: ./cmd/main.go
     binary: imds
     env:
       - CGO_ENABLED=0
     ldflags:
+      - -s -w
       - -X main.commit={{.FullCommit}}
       - -X main.version={{.Version}}
-    targets:
-      - linux_amd64
-      - linux_arm64
-      - darwin_arm64
-      - darwin_amd64
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    format_overrides:
+      - goos: windows
+        format: zip
+
 checksum:
   name_template: 'checksums.txt'
+
 snapshot:
   name_template: "{{ incpatch .Version }}-snapshot"
+
 changelog:
   sort: asc
   filters:
     exclude:
       - '^docs:'
       - '^test:'
+      - '^chore:'
+
+brews:
+  - name: imds
+    repository:
+      owner: bwagner5
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/bwagner5/imds"
+    description: "CLI and TUI for EC2 Instance Metadata Service (IMDS)"
+    license: "Apache-2.0"
+    install: |
+      bin.install "imds"
+    test: |
+      system "#{bin}/imds", "--version"
+
 nfpms:
   - maintainer: Brandon Wagner
-    description: |-
-      a CLI for the EC2 Instance Metadata Service (IMDS)
+    description: CLI and TUI for EC2 Instance Metadata Service (IMDS)
     license: Apache-2.0
     formats:
       - deb

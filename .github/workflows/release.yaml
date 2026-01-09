@@ -4,46 +4,42 @@ on:
     tags:
       - "v*.*.*"
   workflow_dispatch:
+
 permissions:
   id-token: write
-  pull-requests: write
   contents: write
+
 jobs:
   release:
     runs-on: ubuntu-latest
-    if: github.repository == 'bwagner5/imds-client'
+    if: github.repository == 'bwagner5/imds'
     steps:
-      -
-        name: Checkout
-        uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - run: sed -En 's/^go[[:space:]]+([[:digit:].]+)$/GO_VERSION=\1/p' go.mod >> $GITHUB_ENV
-        shell: bash
-      - uses: actions/setup-go@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
-          check-latest: true
-      - uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/
-            ~/go/bin/
-          key: ${{ runner.os }}-go-cache-${{ hashFiles('go.sum', 'hack/toolchain.sh') }}
-      - run: make toolchain verify
-      -
-        name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v4
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run tests
+        run: go test -v ./...
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: latest
-          args: release
+          args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      -
-        name: Upload assets
-        uses: actions/upload-artifact@v3
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
           name: imds
           path: dist/*

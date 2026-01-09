@@ -1,177 +1,176 @@
 # IMDS CLI
 
-A comprehensive command-line interface for accessing EC2 Instance Metadata Service (IMDS) information.
+A command-line interface and interactive TUI for accessing EC2 Instance Metadata Service (IMDS) information.
 
 ## Installation
 
+```bash
+go install github.com/bwagner5/imds/cmd@latest
+```
+
+Or build from source:
 ```bash
 go build -o imds ./cmd/main.go
 ```
 
 ## Usage
 
-### Basic Queries
+### Interactive TUI
 
-Get a specific value:
+Launch the interactive explorer by running `imds` with no arguments:
+
 ```bash
-# Get instance ID (smart lookup - finds meta-data/instance-id automatically)
+imds
+```
+
+**TUI Features:**
+- Browse IMDS data in a filesystem-like tree view
+- View key descriptions from AWS documentation
+- Full-screen value viewer for detailed inspection
+- Global search (`/`) to find keys across all paths
+
+**TUI Navigation:**
+- `↑`/`↓` or `j`/`k` - Navigate
+- `Enter` or `Space` - Select (enter directory or view value)
+- `←`/`Backspace` or `h` - Go back
+- `/` - Search all keys
+- `Esc` - Cancel search or return to root
+- `q` - Quit
+
+### Query Values
+
+Get a specific value using smart lookup (automatically finds the key):
+
+```bash
 imds instance-id
-# Output: i-012345
+# Output: i-1234567890abcdef0
 
-# Get availability zone (smart lookup - finds meta-data/placement/availability-zone)
-imds availability-zone
-# Output: us-east-1a
-
-# Get region (smart lookup - finds meta-data/placement/region)
 imds region
 # Output: us-east-1
 
-# Traditional explicit path still works
-imds placement/availability-zone
-# or
-imds placement availability-zone
+imds availability-zone
+# Output: us-east-1a
 ```
 
-### Listing Available Data
+Query using explicit paths:
 
-List top-level categories:
 ```bash
-imds
+imds placement/region
+imds dynamic/instance-identity/document
+```
+
+### Tree View
+
+List all keys recursively (without values):
+
+```bash
+imds -r
 # Output:
 # meta-data/
+#   instance-id
+#   instance-type
+#   placement/
+#     availability-zone
+#     region
 # dynamic/
+#   instance-identity/
+#     document
 # user-data
+```
 
-# Or explicitly use list command
-imds list
+### Dump All Data
+
+Dump all keys with their values:
+
+```bash
+imds --dump
 # Output:
 # meta-data/
-# dynamic/
-# user-data
+#   instance-id: i-1234567890abcdef0
+#   instance-type: m5.large
+#   placement/
+#     availability-zone: us-east-1a
+#     region: us-east-1
 ```
 
-List specific category contents:
+Dump a specific path:
+
 ```bash
-# List all dynamic data categories
-imds list dynamic
-
-# List all meta-data categories  
-imds list meta-data
-```
-
-List recursively:
-```bash
-# List all paths recursively from root
-imds list --recursive
-# Output:
-# meta-data/
-# meta-data/instance-id
-# meta-data/instance-type
-# meta-data/placement/
-# meta-data/placement/availability-zone
-# meta-data/placement/region
-# dynamic/
-# dynamic/instance-identity/
-# dynamic/instance-identity/document
-# user-data
-
-# List dynamic paths recursively
-imds list dynamic --recursive
-```
-
-### Directory Navigation
-
-Query directories to see their contents:
-```bash
-# List placement information
-imds placement
-# Output:
-# availability-zone
-# host-id
-# partition-number
-# region
-
-# Then query specific values
-imds placement/host-id
+imds spot --dump
+imds events --dump
 ```
 
 ### JSON Output
 
-Get all IMDS data as JSON:
+Export data as JSON:
+
 ```bash
-# Dump everything to JSON
+# All data
 imds --json > imds-data.json
 
-# Get specific path as JSON
-imds placement --json
+# Specific path
+imds events --json
+
+# Specific key
+imds instance-id --json
 ```
 
-### Watching for Changes
+### Watch for Changes
 
 Monitor IMDS data for changes:
+
 ```bash
 # Watch all data
 imds --watch
 
-# Watch specific path
-imds spot/termination-time --watch
+# Watch specific path (useful for spot termination)
+imds spot --watch
 ```
 
-## Command Reference
+## Flags
 
-### Global Flags
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--recursive` | `-r` | List all paths recursively (tree, keys only) |
+| `--dump` | `-d` | Dump all paths with values |
+| `--json` | `-j` | Output as JSON |
+| `--watch` | `-w` | Watch for changes |
+| `--endpoint` | `-e` | IMDS endpoint (default: http://169.254.169.254) |
+| `--version` | | Show version information |
 
-- `--endpoint, -e`: IMDS endpoint (default: http://169.254.169.254)
-- `--json, -j`: Output in JSON format
-- `--recursive, -r`: List all paths recursively (with list command)
-- `--watch, -w`: Watch for changes
-- `--version`: Show version information
+## Smart Key Lookup
 
-### Commands
+The CLI automatically searches for keys, so you don't need to remember full paths:
 
-#### `imds [path]`
-Query a specific IMDS path or dump all data if no path provided.
-
-Examples:
 ```bash
-imds instance-id
-imds placement/host-id
-imds dynamic/instance-identity/document
+imds instance-id      # finds meta-data/instance-id
+imds region           # finds meta-data/placement/region
+imds availability-zone # finds meta-data/placement/availability-zone
+imds document         # finds dynamic/instance-identity/document
 ```
 
-#### `imds list [category]`
-List available paths and categories.
+If a key isn't found, similar keys are suggested:
 
-Examples:
 ```bash
-imds list                    # List top-level categories
-imds list dynamic            # List dynamic data paths
-imds list meta-data          # List meta-data paths
-imds list --recursive        # List all paths recursively
+imds instanc-id
+# Key "instanc-id" not found. Did you mean:
+#   - instance-id
+#   - elastic-inference-accelerator-id
 ```
-
-## Path Shortcuts
-
-The CLI automatically handles path prefixes and includes smart key lookup:
-
-- `imds instance-id` → automatically finds `meta-data/instance-id`
-- `imds region` → automatically finds `meta-data/placement/region`
-- `imds availability-zone` → automatically finds `meta-data/placement/availability-zone`
-- `imds placement/host-id` → `imds meta-data/placement/host-id`
-- `imds dynamic/instance-identity` → `imds dynamic/instance-identity`
-
-The smart lookup feature searches recursively through the IMDS tree to find the first occurrence of a key, so you don't need to remember the full path structure.
 
 ## Environment Variables
 
-- `IMDS_ENDPOINT`: Override the default IMDS endpoint
+| Variable | Description |
+|----------|-------------|
+| `IMDS_ENDPOINT` | Override the default IMDS endpoint |
 
 ## Examples
 
-### Common Use Cases
-
 ```bash
-# Get basic instance information
+# Launch interactive TUI
+imds
+
+# Get instance information
 imds instance-id
 imds instance-type
 imds ami-id
@@ -182,42 +181,55 @@ imds public-ipv4
 imds mac
 
 # Get placement information
-imds placement/availability-zone
-imds placement/region
+imds region
+imds availability-zone
 
-# Get security credentials (if available)
+# Get IAM credentials (if available)
 imds iam/security-credentials/
 
-# Get dynamic data
+# Get instance identity document
 imds dynamic/instance-identity/document
 
-# Monitor spot instance termination
-imds spot/termination-time --watch
+# Monitor spot termination
+imds spot --watch
 
-# Export all metadata
-imds --json > instance-metadata.json
+# Export all metadata as JSON
+imds --json > metadata.json
+
+# View scheduled maintenance events
+imds events --dump
 ```
 
-### Advanced Usage
+## Library Usage
 
-```bash
-# List all available paths
-imds list --recursive | grep -E "(network|placement)"
+The `pkg/imds` package can be used programmatically:
 
-# Get specific network interface information
-imds network/interfaces/macs/$(imds mac)/
+```go
+package main
 
-# Watch for maintenance events
-imds events/maintenance/scheduled --watch
+import (
+    "context"
+    "fmt"
+    "github.com/bwagner5/imds/pkg/imds"
+)
+
+func main() {
+    ctx := context.Background()
+    client, _ := imds.NewClient(ctx, "")
+
+    // Get a specific value
+    resp, _ := client.Get(ctx, "meta-data/instance-id")
+    fmt.Println(string(resp))
+
+    // Get all data recursively
+    data := client.GetAll(ctx, "")
+    
+    // Find a key by name
+    path := client.FindKey(ctx, "instance-id")
+    
+    // Watch for changes
+    for update := range client.Watch(ctx, "meta-data/spot") {
+        fmt.Printf("Update: %v\n", update)
+    }
+}
 ```
-
-## Output Formats
-
-The CLI intelligently formats output based on the data type:
-
-- **Simple values**: Plain text (e.g., "i-012345")
-- **JSON data**: Pretty-printed JSON
-- **Directory listings**: One item per line
-- **Arrays**: JSON array format
-
-Use `--json` flag to force JSON output for all responses.

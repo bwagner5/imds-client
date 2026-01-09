@@ -25,7 +25,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/bwagner5/imds-client/pkg/imds"
+	"github.com/bwagner5/imds/pkg/imds"
+	"github.com/bwagner5/imds/pkg/tui"
 )
 
 var (
@@ -51,12 +52,13 @@ func main() {
 	rootCmd := &cobra.Command{
 		Use:   "imds [path]",
 		Short: "EC2 Instance Metadata Service CLI",
-		Long:  "A CLI for accessing EC2 Instance Metadata Service (IMDS) information",
-		Example: `  imds instance-id
-  imds placement/region
-  imds -r
-  imds --dump
-  imds spot --dump`,
+		Long:  "A CLI for accessing EC2 Instance Metadata Service (IMDS) information.\nRun without arguments to launch interactive TUI explorer.",
+		Example: `  imds                    # Launch interactive TUI
+  imds instance-id        # Get specific value
+  imds placement/region   # Get nested value
+  imds -r                 # Tree view of all keys
+  imds --dump             # Dump all keys with values
+  imds spot --dump        # Dump specific path`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if opts.Version {
@@ -87,6 +89,19 @@ func run(ctx context.Context, args []string) error {
 
 	path := strings.Join(args, "/")
 
+	// JSON flag always dumps all data as JSON
+	if opts.JSON {
+		data := client.GetAll(ctx, imds.NormalizePath(path))
+		enc, _ := json.MarshalIndent(data, "", "  ")
+		fmt.Println(string(enc))
+		return nil
+	}
+
+	// Launch TUI if no args and no output flags
+	if path == "" && !opts.Dump && !opts.Recursive && !opts.Watch {
+		return tui.Run(ctx, client)
+	}
+
 	if opts.Watch {
 		return watch(ctx, client, imds.NormalizePath(path))
 	}
@@ -95,22 +110,11 @@ func run(ctx context.Context, args []string) error {
 		return dumpOrTree(ctx, client, imds.NormalizePath(path))
 	}
 
-	if path == "" {
-		return listRoot()
-	}
-
 	return query(ctx, client, path)
 }
 
-func listRoot() error {
-	fmt.Println("meta-data/")
-	fmt.Println("dynamic/")
-	fmt.Println("user-data")
-	return nil
-}
-
 func query(ctx context.Context, client *imds.Client, path string) error {
-	// Smart lookup for simple keys
+	// Smart lookup for simple keys (no slashes)
 	if !strings.Contains(path, "/") {
 		if found := client.FindKey(ctx, path); found != "" {
 			resp, err := client.Get(ctx, found)
@@ -122,7 +126,6 @@ func query(ctx context.Context, client *imds.Client, path string) error {
 
 	resp, err := client.Get(ctx, imds.NormalizePath(path))
 	if err != nil {
-		// Try to find similar keys
 		keys := client.AllKeys(ctx)
 		similar := imds.FindSimilar(path, keys, 5)
 		if len(similar) > 0 {
@@ -144,20 +147,12 @@ func output(resp []byte) error {
 		fmt.Println(string(enc))
 		return nil
 	}
-
-	content := strings.TrimSpace(string(resp))
-	fmt.Println(content)
+	fmt.Println(strings.TrimSpace(string(resp)))
 	return nil
 }
 
 func dumpOrTree(ctx context.Context, client *imds.Client, path string) error {
 	data := client.GetAll(ctx, path)
-
-	if opts.JSON {
-		enc, _ := json.MarshalIndent(data, "", "  ")
-		fmt.Println(string(enc))
-		return nil
-	}
 
 	if opts.Dump {
 		printDump(data, 0)
